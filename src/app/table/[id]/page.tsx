@@ -3,6 +3,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTableSocket } from "@/components/useTableSocket";
+import { useTableSounds } from "@/components/useTableSounds";
 import { PlayingCard } from "@/components/PlayingCard";
 import { fetchMe, type Me } from "@/lib/client/api";
 import type { PublicGameState, PlayerAction, TableConfig } from "@/lib/poker/types";
@@ -36,6 +37,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   const seatCount = state?.config.maxSeats ?? 6;
   const viewerSeat = state?.viewerSeat ?? null;
   const mySeat = viewerSeat != null ? state?.seats[viewerSeat] : undefined;
+  const { muted, toggleMute } = useTableSounds(state, viewerSeat);
 
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: 12, minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
@@ -47,7 +49,17 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
             {state ? `${PHASE_FA[state.phase]} · بلایند ${state.config.smallBlind}/${state.config.bigBlind}` : "…"}
           </div>
         </div>
-        <div style={{ fontSize: 12, color: connected ? "var(--accent)" : "var(--danger)" }}>{connected ? "متصل" : "قطع"}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={toggleMute}
+            aria-label={muted ? "روشن کردن صدا" : "قطع صدا"}
+            className="btn btn-ghost"
+            style={{ padding: "0.25rem 0.5rem", fontSize: 16, lineHeight: 1 }}
+          >
+            {muted ? "🔇" : "🔊"}
+          </button>
+          <span style={{ fontSize: 12, color: connected ? "var(--accent)" : "var(--danger)" }}>{connected ? "متصل" : "قطع"}</span>
+        </div>
       </header>
 
       {/* Felt */}
