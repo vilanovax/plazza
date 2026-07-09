@@ -14,7 +14,7 @@
 import type { Server as SocketIOServer } from "socket.io";
 import { HoldemGame, InvalidActionError } from "../lib/poker/engine";
 import { cardToString } from "../lib/poker/cards";
-import type { PlayerAction, TableConfig } from "../lib/poker/types";
+import type { LogEntry, PlayerAction, TableConfig } from "../lib/poker/types";
 import { tx } from "../lib/db";
 import * as repo from "../lib/repo";
 
@@ -28,7 +28,16 @@ interface TableRuntime {
   nextHandTimer?: NodeJS.Timeout;
   /** Seats dealt into the current hand, captured for per-hand stats. */
   handParticipants?: Array<{ seatIndex: number; userId: string }>;
+  /** Id of the most recently finished hand (for late reveal persistence). */
+  lastHandId?: string;
+  /** Rolling table event feed. */
+  log: LogEntry[];
+  logSeq: number;
+  /** Per-user auto-removal timers for players who sit out too long. */
+  sitOutTimers: Map<string, NodeJS.Timeout>;
 }
+
+const LOG_CAP = 60;
 
 function room(tableId: string): string {
   return `table:${tableId}`;
@@ -70,7 +79,7 @@ export class GameManager {
           }
         }
       }
-      const rt: TableRuntime = { game, tableId };
+      const rt: TableRuntime = { game, tableId, log: [], logSeq: 0, sitOutTimers: new Map() };
       this.tables.set(tableId, rt);
       return rt;
     })();
@@ -119,6 +128,7 @@ export class GameManager {
     }
     await repo.upsertSeat(tableId, seatIndex, userId, buyIn, buyIn);
 
+    this.pushLog(rt, `${user.display_name} با ${buyIn.toLocaleString("fa")} ژتون به میز اضافه شد`);
     this.maybeStartHand(rt);
     await this.broadcast(tableId);
   }
@@ -130,11 +140,14 @@ export class GameManager {
     const seat = rt.game.seats.find((s) => s.userId === userId);
     if (!seat) return;
     const seatIndex = seat.seatIndex;
+    const name = seat.name ?? "بازیکن";
     const chips = rt.game.leave(seatIndex);
     if (chips > 0) {
       await repo.applyLedger({ userId, type: "cash_out", amount: chips, tableId, note: "خروج از میز" });
     }
     await repo.removeSeat(tableId, seatIndex);
+    this.clearSitOutTimer(rt, userId);
+    this.pushLog(rt, `${name} میز را ترک کرد`);
     await this.afterMutation(rt);
   }
 
@@ -156,6 +169,7 @@ export class GameManager {
       throw err;
     }
     await repo.updateSeatStack(tableId, seat.seatIndex, seat.stack);
+    this.pushLog(rt, `${seat.name ?? "بازیکن"} مقدار ${amount.toLocaleString("fa")} ژتون خرید`);
     this.maybeStartHand(rt);
     await this.broadcast(tableId);
   }
@@ -215,7 +229,77 @@ export class GameManager {
     const rt = this.tables.get(tableId);
     if (!rt) throw new InvalidActionError("میز فعال نیست");
     rt.game.showCards(userId); // throws if not allowed / window passed
+    // Re-persist the updated result so the reveal survives in hand history.
+    if (rt.lastHandId && rt.game.lastResult) {
+      try {
+        await repo.updateHandResult(rt.lastHandId, rt.game.lastResult);
+      } catch (err) {
+        console.error("updateHandResult failed", err);
+      }
+    }
     await this.broadcast(tableId);
+  }
+
+  /** Toggle a player's sit-out; auto-remove them after the configured window. */
+  async sitOut(tableId: string, userId: string, out: boolean): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) throw new InvalidActionError("میز فعال نیست");
+    rt.game.setSitOut(userId, out);
+    const seat = rt.game.seats.find((s) => s.userId === userId);
+    const name = seat?.name ?? "بازیکن";
+    this.clearSitOutTimer(rt, userId);
+    if (out) {
+      const ms = Math.max(0, rt.game.config.sitOutMaxMin) * 60_000;
+      this.pushLog(rt, `${name} نشست بیرون (سیت‌اوت)`);
+      if (ms > 0) {
+        rt.sitOutTimers.set(userId, setTimeout(() => this.autoRemoveSatOut(tableId, userId), ms));
+      }
+    } else {
+      this.pushLog(rt, `${name} به بازی برگشت`);
+    }
+    this.maybeStartHand(rt);
+    await this.broadcast(tableId);
+  }
+
+  private clearSitOutTimer(rt: TableRuntime, userId: string): void {
+    const t = rt.sitOutTimers.get(userId);
+    if (t) {
+      clearTimeout(t);
+      rt.sitOutTimers.delete(userId);
+    }
+  }
+
+  private async autoRemoveSatOut(tableId: string, userId: string): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) return;
+    rt.sitOutTimers.delete(userId);
+    const seat = rt.game.seats.find((s) => s.userId === userId);
+    if (!seat || !seat.sitOut) return; // came back in the meantime
+    const name = seat.name ?? "بازیکن";
+    await this.leave(tableId, userId);
+    this.pushLog(rt, `${name} به دلیل سیت‌اوت طولانی حذف شد`);
+    await this.broadcast(tableId);
+  }
+
+  /** Admin removes a player from the table (cashing out their stack). */
+  async kick(tableId: string, actorRole: string, seatIndex: number): Promise<void> {
+    if (actorRole !== "admin") throw new InvalidActionError("فقط مدیر می‌تواند بازیکن را حذف کند");
+    const rt = this.tables.get(tableId);
+    if (!rt) throw new InvalidActionError("میز فعال نیست");
+    const seat = rt.game.seats[seatIndex];
+    if (!seat || !seat.userId) throw new InvalidActionError("صندلی خالی است");
+    const name = seat.name ?? "بازیکن";
+    await this.leave(tableId, seat.userId);
+    this.pushLog(rt, `${name} توسط مدیر از میز حذف شد`);
+    await this.broadcast(tableId);
+  }
+
+  /** Player asks for extra think-time on their turn (time bank). */
+  async requestExtraTime(tableId: string, userId: string): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) throw new InvalidActionError("میز فعال نیست");
+    rt.game.requestExtraTime(userId); // throws if not allowed
+    await this.afterMutation(rt); // reschedules the action timer to the new deadline
   }
 
   // --------------------------------------------------------------------------
@@ -293,6 +377,18 @@ export class GameManager {
     const participants = rt.handParticipants;
     rt.currentHandId = undefined;
     rt.handParticipants = undefined;
+    rt.lastHandId = handId; // remembered so a late reveal can re-persist
+
+    // Announce winners in the table feed.
+    if (g.lastResult) {
+      for (const pot of g.lastResult.pots) {
+        for (const w of pot.winners) {
+          const name = g.seats[w.seatIndex]?.name ?? "بازیکن";
+          const via = w.handName ? ` با ${w.handName}` : "";
+          this.pushLog(rt, `${name}${via} مبلغ ${w.amount.toLocaleString("fa")} ژتون برد`);
+        }
+      }
+    }
 
     // Persist the hand result + per-player stats together (one transaction).
     if (handId && g.lastResult) {
@@ -336,13 +432,20 @@ export class GameManager {
   // --------------------------------------------------------------------------
   // Broadcasting
   // --------------------------------------------------------------------------
+  private pushLog(rt: TableRuntime, text: string): void {
+    rt.log.push({ id: ++rt.logSeq, ts: Date.now(), text });
+    if (rt.log.length > LOG_CAP) rt.log.splice(0, rt.log.length - LOG_CAP);
+  }
+
   async broadcast(tableId: string): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt || !this.io) return;
     const sockets = await this.io.in(room(tableId)).fetchSockets();
     for (const s of sockets) {
       const uid = (s.data as { userId?: string }).userId ?? null;
-      s.emit("state", rt.game.publicState(uid));
+      const ps = rt.game.publicState(uid);
+      ps.log = rt.log;
+      s.emit("state", ps);
     }
   }
 }

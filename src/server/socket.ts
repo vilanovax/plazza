@@ -84,6 +84,31 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       }
     });
 
+    socket.on("sit_out", async ({ tableId, out }: { tableId: string; out: boolean }) => {
+      try {
+        await gameManager.sitOut(tableId, data.userId, Boolean(out));
+      } catch (err) {
+        fail(socket, err);
+      }
+    });
+
+    socket.on("extra_time", async ({ tableId }: { tableId: string }) => {
+      try {
+        await gameManager.requestExtraTime(tableId, data.userId);
+      } catch (err) {
+        fail(socket, err);
+      }
+    });
+
+    // Admin-only: remove a player from the table.
+    socket.on("kick", async ({ tableId, seatIndex }: { tableId: string; seatIndex: number }) => {
+      try {
+        await gameManager.kick(tableId, data.role, seatIndex);
+      } catch (err) {
+        fail(socket, err);
+      }
+    });
+
     // Top-up: applied immediately if self-top-up is enabled, else queued for admin.
     socket.on("topup", async ({ tableId, amount }: { tableId: string; amount: number }) => {
       try {

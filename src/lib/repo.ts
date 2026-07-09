@@ -171,6 +171,9 @@ const SETTINGS_COLUMNS = new Set<string>([
   "topup_min",
   "topup_max",
   "allow_self_register",
+  "sit_out_max_min",
+  "extra_time_sec",
+  "extra_time_requests",
 ]);
 
 export async function updateSettings(patch: Partial<AdminSettings>): Promise<AdminSettings> {
@@ -334,6 +337,11 @@ function finishHandParams(
   result: unknown
 ): unknown[] {
   return [handId, community, pot, rake, deckSeed ?? null, JSON.stringify(result)];
+}
+
+/** Re-persist only the result JSON (used when a winner reveals cards late). */
+export async function updateHandResult(handId: string, result: unknown): Promise<void> {
+  await query("UPDATE hands SET result = $2 WHERE id = $1", [handId, JSON.stringify(result)]);
 }
 
 export async function finishHandTx(

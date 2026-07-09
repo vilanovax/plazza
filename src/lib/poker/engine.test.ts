@@ -20,6 +20,9 @@ function cfg(over: Partial<TableConfig> = {}): TableConfig {
     topUpMin: 100,
     topUpMax: 5000,
     tableDurationMin: 0,
+    sitOutMaxMin: 5,
+    extraTimeSec: 15,
+    extraTimeRequests: -1,
     ...over,
   };
 }
@@ -147,6 +150,40 @@ test("fold-win offers the winner a show window; only the winner may reveal", () 
   assert.throws(() => g.showCards("u0"), /برنده/); // non-winner can't show
   g.showCards("u1");
   assert.equal(g.lastResult?.shownCards[1]?.length, 2); // winner's cards revealed
+});
+
+test("sit-out excludes a player from the next deal", () => {
+  const g = new HoldemGame("tSO", cfg());
+  g.sit(0, "u0", "A", 1000);
+  g.sit(1, "u1", "B", 1000);
+  g.sit(2, "u2", "C", 1000);
+  g.startHand();
+  g.act("u0", { type: "fold" });
+  g.act("u1", { type: "fold" }); // seat2 wins, hand ends
+  g.setSitOut("u1", true);
+  g.startHand();
+  assert.equal(g.seats[1].status, "sitting_out");
+  assert.equal(g.seats[1].holeCards?.length ?? 0, 0);
+  assert.equal(g.seats[0].holeCards?.length, 2); // others still dealt
+});
+
+test("extra time extends the deadline and respects the per-hand limit", () => {
+  const g = new HoldemGame("tET", cfg({ extraTimeRequests: 1, extraTimeSec: 20 }));
+  g.sit(0, "u0", "A", 1000);
+  g.sit(1, "u1", "B", 1000);
+  g.startHand(); // heads-up: seat0 acts first
+  const before = g.actionDeadline ?? 0;
+  g.requestExtraTime("u0");
+  assert.ok((g.actionDeadline ?? 0) >= before + 20_000 - 50);
+  assert.throws(() => g.requestExtraTime("u0"), /سقف/); // only 1 allowed
+});
+
+test("extra time can be disabled per table", () => {
+  const g = new HoldemGame("tET2", cfg({ extraTimeRequests: 0 }));
+  g.sit(0, "u0", "A", 1000);
+  g.sit(1, "u1", "B", 1000);
+  g.startHand();
+  assert.throws(() => g.requestExtraTime("u0"), /غیرفعال/);
 });
 
 test("rake is capped and skipped when no flop is seen", () => {

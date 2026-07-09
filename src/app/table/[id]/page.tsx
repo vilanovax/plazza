@@ -7,7 +7,7 @@ import { useTableSounds } from "@/components/useTableSounds";
 import { DealerAvatar } from "@/components/DealerAvatar";
 import { PlayingCard } from "@/components/PlayingCard";
 import { api, fetchMe, type Me } from "@/lib/client/api";
-import type { PublicGameState, PlayerAction, TableConfig } from "@/lib/poker/types";
+import type { PublicGameState, PlayerAction, TableConfig, LogEntry } from "@/lib/poker/types";
 
 type PreAction = "fold" | "check_fold" | "check";
 const BETTING_PHASES = new Set(["preflop", "flop", "turn", "river"]);
@@ -32,10 +32,10 @@ const PHASE_FA: Record<string, string> = {
 export default function TablePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards } = useTableSocket(id);
+  const { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick } = useTableSocket(id);
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
-  const [statsFor, setStatsFor] = useState<{ userId: string; name: string } | null>(null);
+  const [statsFor, setStatsFor] = useState<{ userId: string; name: string; seatIndex: number } | null>(null);
   // Pre-selected action to auto-run when it becomes the player's turn.
   const [preAction, setPreAction] = useState<{ type: PreAction; handNo: number } | null>(null);
 
@@ -149,7 +149,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
                   isButton={isButton}
                   community={state?.community ?? []}
                   deadline={isTurn ? state?.actionDeadline : undefined}
-                  onSelect={() => seat!.userId && setStatsFor({ userId: seat!.userId, name: seat!.name ?? "بازیکن" })}
+                  onSelect={() => seat!.userId && setStatsFor({ userId: seat!.userId, name: seat!.name ?? "بازیکن", seatIndex: i })}
                 />
               ) : (
                 <button className="btn btn-ghost" style={{ width: "100%", fontSize: 12, padding: "0.5rem" }}
@@ -183,12 +183,16 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           leaveSeat={leaveSeat}
           preAction={preAction?.type ?? null}
           onPreAction={selectPre}
+          sitOut={sitOut}
+          requestExtraTime={requestExtraTime}
         />
       ) : (
         <div className="panel" style={{ padding: 12, textAlign: "center", color: "var(--muted)" }}>
           برای بازی روی یک صندلی خالی بزنید و بنشینید.
         </div>
       )}
+
+      {state?.log && state.log.length > 0 && <EventLog log={state.log} />}
 
       {sitSeat != null && state && me && (
         <SitDialog seat={sitSeat} config={state.config} balance={me.chipBalance}
@@ -197,7 +201,14 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       )}
 
       {statsFor && (
-        <PlayerStatsModal tableId={id} userId={statsFor.userId} name={statsFor.name} onClose={() => setStatsFor(null)} />
+        <PlayerStatsModal
+          tableId={id}
+          userId={statsFor.userId}
+          name={statsFor.name}
+          canKick={me?.role === "admin" && statsFor.userId !== me?.id}
+          onKick={() => { kick(statsFor.seatIndex); setStatsFor(null); }}
+          onClose={() => setStatsFor(null)}
+        />
       )}
     </main>
   );
@@ -250,6 +261,7 @@ function SeatView({ seat, isTurn, isButton, community, deadline, onSelect }: {
         </div>
         <div style={{ fontSize: 12, color: "var(--accent)" }}>{seat.stack.toLocaleString("fa")}</div>
         {seat.status === "allin" && <div style={{ fontSize: 10, color: "var(--danger)" }}>آل‌این</div>}
+        {seat.sitOut && <div style={{ fontSize: 10, color: "var(--muted)" }}>سیت‌اوت</div>}
         {isTurn && deadline && <Countdown deadline={deadline} />}
       </div>
     </div>
@@ -271,6 +283,20 @@ function Countdown({ deadline }: { deadline: number }) {
   return <div style={{ position: "absolute", top: -6, left: -6, background: "var(--gold)", color: "#2a1e00", borderRadius: 10, fontSize: 11, fontWeight: 800, padding: "1px 6px" }}>{left ?? "•"}</div>;
 }
 
+function EventLog({ log }: { log: LogEntry[] }) {
+  const recent = log.slice(-6);
+  return (
+    <div className="panel" style={{ padding: "6px 10px", marginTop: 8, maxHeight: 96, overflowY: "auto", fontSize: 12, color: "var(--muted)" }}>
+      {recent.map((e) => (
+        <div key={e.id} style={{ padding: "2px 0", lineHeight: 1.5 }}>
+          <span style={{ opacity: 0.55 }}>{new Date(e.ts).toLocaleTimeString("fa", { hour: "2-digit", minute: "2-digit" })}</span>
+          {" — "}{e.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ShowCardsPrompt({ until, onShow }: { until: number; onShow: () => void }) {
   const [left, setLeft] = useState<number | null>(null);
   useEffect(() => {
@@ -290,12 +316,15 @@ function ShowCardsPrompt({ until, onShow }: { until: number; onShow: () => void 
   );
 }
 
-function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreAction }: {
+function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreAction, sitOut, requestExtraTime }: {
   state: PublicGameState; mySeat: SeatVM;
   act: (a: PlayerAction) => void; topup: (n: number) => void; leaveSeat: () => void;
   preAction: PreAction | null; onPreAction: (t: PreAction) => void;
+  sitOut: (out: boolean) => void; requestExtraTime: () => void;
 }) {
   const myTurn = state.currentTurnSeat === mySeat.seatIndex && ["preflop", "flop", "turn", "river"].includes(state.phase);
+  const etAllowed = state.config.extraTimeRequests; // -1 unlimited, 0 off
+  const canExtraTime = etAllowed !== 0 && (etAllowed < 0 || (mySeat.extraTimeUsed ?? 0) < etAllowed);
   const toCall = Math.max(0, state.currentBet - mySeat.betThisRound);
   const maxTo = mySeat.betThisRound + mySeat.stack;
   const minRaiseTo = Math.min(maxTo, state.currentBet > 0 ? state.currentBet + state.minRaise : state.config.bigBlind);
@@ -338,6 +367,11 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreActio
               <button className="btn btn-ghost" style={{ fontSize: 12, padding: "0.35rem 0.6rem" }} onClick={() => setRaiseTo(maxTo)}>آل‌این</button>
             </div>
           )}
+          {canExtraTime && (
+            <button className="btn btn-ghost" style={{ marginTop: 8, width: "100%", fontSize: 12 }} onClick={requestExtraTime}>
+              ⏱ زمان اضافه (+{state.config.extraTimeSec.toLocaleString("fa")} ثانیه)
+            </button>
+          )}
         </>
       ) : (
         <div>
@@ -356,6 +390,9 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreActio
               موجودی میز: <b style={{ color: "var(--accent)" }}>{mySeat.stack.toLocaleString("fa")}</b>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
+              <button className={`btn ${mySeat.sitOut ? "btn-primary" : "btn-ghost"}`} style={{ fontSize: 13 }} onClick={() => sitOut(!mySeat.sitOut)}>
+                {mySeat.sitOut ? "بازگشت به بازی" : "سیت‌اوت"}
+              </button>
               {state.config.allowTopUp && (
                 <button className="btn btn-gold" style={{ fontSize: 13 }} onClick={() => setShowTopup((s) => !s)}>+ تاپ‌آپ</button>
               )}
@@ -388,8 +425,8 @@ function StatRow({ label, value, color }: { label: string; value: string; color?
     </div>
   );
 }
-function PlayerStatsModal({ tableId, userId, name, onClose }: {
-  tableId: string; userId: string; name: string; onClose: () => void;
+function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
+  tableId: string; userId: string; name: string; canKick?: boolean; onKick?: () => void; onClose: () => void;
 }) {
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [err, setErr] = useState("");
@@ -417,6 +454,12 @@ function PlayerStatsModal({ tableId, userId, name, onClose }: {
             <StatRow label="تعداد دفعات خرید" value={stats.buyInCount.toLocaleString("fa")} />
             <StatRow label="سود/زیان خالص" value={`${stats.net >= 0 ? "+" : ""}${stats.net.toLocaleString("fa")}`} color={stats.net >= 0 ? "var(--accent)" : "var(--danger)"} />
           </div>
+        )}
+        {canKick && onKick && (
+          <button className="btn btn-danger" style={{ width: "100%", marginTop: 14 }}
+            onClick={() => { if (confirm(`${name} از میز حذف شود؟`)) onKick(); }}>
+            حذف از میز (کیک)
+          </button>
         )}
       </div>
     </div>

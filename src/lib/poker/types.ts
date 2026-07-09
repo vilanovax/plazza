@@ -7,6 +7,13 @@ import type { Card } from "./cards";
 
 export type ActionType = "fold" | "check" | "call" | "bet" | "raise" | "allin";
 
+/** A line in the table's event feed (join / leave / buy / win / kick …). */
+export interface LogEntry {
+  id: number;
+  ts: number;
+  text: string;
+}
+
 export interface PlayerAction {
   type: ActionType;
   /** For bet/raise: the total amount the player is raising *to* this round. */
@@ -51,6 +58,12 @@ export interface TableConfig {
   topUpMax: number;
   /** Optional table lifetime in minutes (0 = unlimited). */
   tableDurationMin: number;
+  /** Max minutes a player may sit out before being removed from the table. */
+  sitOutMaxMin: number;
+  /** Seconds added each time a player uses extra time on their turn. */
+  extraTimeSec: number;
+  /** Extra-time requests allowed per player per hand (-1 = unlimited, 0 = off). */
+  extraTimeRequests: number;
 }
 
 export interface SeatState {
@@ -67,6 +80,12 @@ export interface SeatState {
   cappedThisRound?: boolean;
   /** Player asked to leave mid-hand; seat is removed once the hand settles. */
   pendingLeave?: boolean;
+  /** Player is sitting out (keeps the seat but isn't dealt in). */
+  sitOut?: boolean;
+  /** Deadline by which a sitting-out player must return or be removed. */
+  sitOutUntil?: number;
+  /** Extra-time requests already used in the current hand. */
+  extraTimeUsed?: number;
   // Private — only ever sent to the owning player.
   holeCards?: Card[];
 }
@@ -117,4 +136,6 @@ export interface GameState {
 export interface PublicGameState extends Omit<GameState, "seats"> {
   seats: Array<Omit<SeatState, "holeCards"> & { holeCards?: Card[]; hasCards: boolean }>;
   viewerSeat: number | null;
+  /** Recent table events (attached by the game manager on broadcast). */
+  log?: LogEntry[];
 }

@@ -88,6 +88,10 @@ export class HoldemGame {
     seat.isConnected = true;
     seat.committedThisHand = 0;
     seat.betThisRound = 0;
+    seat.sitOut = false;
+    seat.sitOutUntil = undefined;
+    // A new occupant can't inherit the previous winner's reveal offer.
+    if (this.showOfferSeat === seatIndex) this.clearShowOffer();
   }
 
   /** Remove a player. Returns the chips they take away from the table. */
@@ -110,6 +114,8 @@ export class HoldemGame {
     } else {
       this.seats[seatIndex] = emptySeat(seatIndex);
     }
+    // If the reveal-offer holder leaves, the offer no longer applies.
+    if (this.showOfferSeat === seatIndex) this.clearShowOffer();
     return chips;
   }
 
@@ -141,7 +147,7 @@ export class HoldemGame {
   // ---------------------------------------------------------------------------
 
   private dealableSeats(): SeatState[] {
-    return this.seats.filter((s) => s.userId && s.stack > 0 && s.status !== "empty");
+    return this.seats.filter((s) => s.userId && s.stack > 0 && s.status !== "empty" && !s.sitOut);
   }
 
   canStartHand(): boolean {
@@ -170,8 +176,9 @@ export class HoldemGame {
       seat.hasActedThisRound = false;
       seat.cappedThisRound = false;
       seat.pendingLeave = false;
+      seat.extraTimeUsed = 0;
       seat.holeCards = undefined;
-      if (seat.userId && seat.stack > 0) seat.status = "active";
+      if (seat.userId && seat.stack > 0 && !seat.sitOut) seat.status = "active";
       else if (seat.userId) seat.status = "sitting_out";
     }
 
@@ -525,7 +532,33 @@ export class HoldemGame {
     if (this.lastResult && seat.holeCards?.length) {
       this.lastResult.shownCards[seat.seatIndex] = [...seat.holeCards];
     }
-    this.showOfferUntil = undefined; // one-shot: hide the offer once revealed
+    this.clearShowOffer(); // one-shot: hide the offer once revealed
+  }
+
+  private clearShowOffer(): void {
+    this.showOfferSeat = undefined;
+    this.showOfferUntil = undefined;
+  }
+
+  /** Toggle a player's sit-out. Takes effect from the next hand. */
+  setSitOut(userId: string, out: boolean): void {
+    const seat = this.seats.find((s) => s.userId === userId);
+    if (!seat || seat.status === "empty") throw new InvalidActionError("شما سر این میز نیستید");
+    seat.sitOut = out;
+    seat.sitOutUntil = out ? Date.now() + this.config.sitOutMaxMin * 60_000 : undefined;
+  }
+
+  /** Extend the current player's think time (time bank). */
+  requestExtraTime(userId: string): void {
+    if (this.currentTurnSeat == null) throw new InvalidActionError("الان نوبت شما نیست");
+    const seat = this.seats[this.currentTurnSeat];
+    if (!seat || seat.userId !== userId) throw new InvalidActionError("نوبت شما نیست");
+    const allowed = this.config.extraTimeRequests; // -1 = unlimited, 0 = off
+    if (allowed === 0) throw new InvalidActionError("زمان اضافه در این میز غیرفعال است");
+    const used = seat.extraTimeUsed ?? 0;
+    if (allowed > 0 && used >= allowed) throw new InvalidActionError("سقف درخواست زمان اضافه پر شده است");
+    seat.extraTimeUsed = used + 1;
+    this.actionDeadline = (this.actionDeadline ?? Date.now()) + this.config.extraTimeSec * 1000;
   }
 
   /** Layered side pots from every seat's total commitment this hand. */
@@ -646,6 +679,9 @@ export class HoldemGame {
           committedThisHand: s.committedThisHand,
           hasActedThisRound: s.hasActedThisRound,
           isConnected: s.isConnected,
+          sitOut: s.sitOut,
+          sitOutUntil: s.sitOutUntil,
+          extraTimeUsed: s.extraTimeUsed,
           hasCards: (s.holeCards?.length ?? 0) > 0,
           holeCards,
         };

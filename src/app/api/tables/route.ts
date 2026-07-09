@@ -55,6 +55,9 @@ export async function POST(req: Request) {
       topUpMin: Math.max(0, Number(body.topUpMin ?? s.topup_min)),
       topUpMax: Math.max(0, Number(body.topUpMax ?? s.topup_max)),
       tableDurationMin: Math.max(0, Number(body.tableDurationMin ?? 0)),
+      sitOutMaxMin: Math.max(0, Number(body.sitOutMaxMin ?? s.sit_out_max_min)),
+      extraTimeSec: Math.max(0, Number(body.extraTimeSec ?? s.extra_time_sec)),
+      extraTimeRequests: Math.max(-1, Math.floor(Number(body.extraTimeRequests ?? s.extra_time_requests))),
     };
     const table = await repo.createTable(config.name, config, session.sub);
     return json({ id: table.id });

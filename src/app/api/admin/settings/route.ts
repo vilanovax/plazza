@@ -12,7 +12,11 @@ const NUMERIC: (keyof AdminSettings)[] = [
   "default_max_buyin",
   "topup_min",
   "topup_max",
+  "sit_out_max_min",
+  "extra_time_sec",
 ];
+// extra_time_requests allows -1 (unlimited), so it can't use the >=0 clamp.
+const SIGNED_NUMERIC: (keyof AdminSettings)[] = ["extra_time_requests"];
 const BOOL: (keyof AdminSettings)[] = ["allow_self_topup", "allow_self_register"];
 
 export async function GET() {
@@ -28,6 +32,7 @@ export async function PUT(req: Request) {
     const body = await req.json();
     const patch: Partial<AdminSettings> = {};
     for (const k of NUMERIC) if (k in body) (patch as Record<string, number>)[k] = Math.max(0, Math.floor(Number(body[k])));
+    for (const k of SIGNED_NUMERIC) if (k in body) (patch as Record<string, number>)[k] = Math.max(-1, Math.floor(Number(body[k])));
     for (const k of BOOL) if (k in body) (patch as Record<string, boolean>)[k] = Boolean(body[k]);
     const settings = await repo.updateSettings(patch);
     return json({ settings });

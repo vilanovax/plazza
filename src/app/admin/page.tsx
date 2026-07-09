@@ -199,6 +199,9 @@ function SettingsTab() {
         {num("default_rake_cap", "سقف rake")}
         {num("topup_min", "حداقل تاپ‌آپ")}
         {num("topup_max", "حداکثر تاپ‌آپ")}
+        {num("sit_out_max_min", "حداکثر سیت‌اوت (دقیقه)")}
+        {num("extra_time_sec", "زمان اضافه هر درخواست (ثانیه)")}
+        {num("extra_time_requests", "تعداد درخواست زمان اضافه (۱- = نامحدود)")}
       </div>
       <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
         {bool("allow_self_topup", "بازیکن بدون تأیید مدیر بتواند تاپ‌آپ کند")}

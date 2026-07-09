@@ -76,4 +76,7 @@ export interface AdminSettings {
   topup_min: number;
   topup_max: number;
   allow_self_register: boolean;
+  sit_out_max_min: number;
+  extra_time_sec: number;
+  extra_time_requests: number;
 }
