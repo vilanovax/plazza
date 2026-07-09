@@ -6,6 +6,7 @@
  * receive the public game state plus their own hole cards. This is the
  * foundation of the anti-cheat model.
  */
+import "./src/server/polyfill"; // must precede any Next import
 import { createServer } from "node:http";
 import next from "next";
 import { Server as SocketIOServer } from "socket.io";
