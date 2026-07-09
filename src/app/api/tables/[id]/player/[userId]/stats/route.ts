@@ -17,18 +17,35 @@ export async function GET(
     const authorized = session.sub === userId || session.role === "admin" || callerSeated;
     if (!authorized) return error("دسترسی ندارید", 403);
 
-    const user = await repo.getUserById(userId);
+    const [user, profile] = await Promise.all([repo.getUserById(userId), repo.getProfile(userId)]);
     if (!user) return error("کاربر یافت نشد", 404);
+
+    // Cosmetic profile is always shown; numeric stats are hidden when the player
+    // opted out (unless the viewer is that player or an admin).
+    const canSeeStats = session.sub === userId || session.role === "admin" || (profile?.stats_public ?? true);
     const stats = await repo.getPlayerTableStats(id, userId);
     const winRate = stats.handsPlayed > 0 ? Math.round((stats.handsWon / stats.handsPlayed) * 100) : 0;
     return json({
       displayName: user.display_name,
-      handsPlayed: stats.handsPlayed,
-      handsWon: stats.handsWon,
-      winRate,
-      buyInCount: stats.buyInCount,
-      totalBought: stats.totalBought,
-      net: stats.net,
+      profile: {
+        avatar: profile?.avatar ?? "",
+        title: profile?.title ?? "",
+        tagline: profile?.tagline ?? "",
+        favoriteCards: profile?.favorite_cards ?? [],
+        cardBack: profile?.card_back ?? "",
+        chipColor: profile?.chip_color ?? "",
+      },
+      statsPublic: canSeeStats,
+      ...(canSeeStats
+        ? {
+            handsPlayed: stats.handsPlayed,
+            handsWon: stats.handsWon,
+            winRate,
+            buyInCount: stats.buyInCount,
+            totalBought: stats.totalBought,
+            net: stats.net,
+          }
+        : {}),
     });
   });
 }

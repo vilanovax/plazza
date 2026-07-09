@@ -13,6 +13,19 @@ export interface User {
   created_at: string;
 }
 
+export interface UserProfileRow {
+  user_id: string;
+  avatar: string;
+  tagline: string;
+  title: string;
+  favorite_cards: string[];
+  card_back: string;
+  chip_color: string;
+  emotes: string[];
+  stats_public: boolean;
+  updated_at: string;
+}
+
 export interface PokerTableRow {
   id: string;
   name: string;

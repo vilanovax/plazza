@@ -13,7 +13,9 @@ import type {
   TournamentRow,
   TournamentEntryRow,
   User,
+  UserProfileRow,
 } from "./models";
+import type { ProfileFields } from "./profile/presets";
 import type { TableConfig } from "./poker/types";
 import type { BlindLevel, TournamentConfig } from "./tournament/types";
 
@@ -26,6 +28,39 @@ export async function getUserById(id: string): Promise<User | null> {
 
 export async function getUserByUsername(username: string): Promise<User | null> {
   return one<User>("SELECT * FROM users WHERE lower(username) = lower($1)", [username]);
+}
+
+export async function setDisplayName(userId: string, displayName: string): Promise<void> {
+  await query("UPDATE users SET display_name = $2 WHERE id = $1", [userId, displayName]);
+}
+
+// ---------------------------------------------------------------------------
+// Player profiles (cosmetic identity)
+// ---------------------------------------------------------------------------
+export async function getProfile(userId: string): Promise<UserProfileRow | null> {
+  return one<UserProfileRow>("SELECT * FROM user_profiles WHERE user_id = $1", [userId]);
+}
+
+/** Fetch profiles for many users at once (table view). */
+export async function getProfilesByIds(ids: string[]): Promise<UserProfileRow[]> {
+  if (ids.length === 0) return [];
+  return query<UserProfileRow>("SELECT * FROM user_profiles WHERE user_id = ANY($1)", [ids]);
+}
+
+/** Insert or replace a user's profile (fields already sanitized by the caller). */
+export async function upsertProfile(userId: string, p: ProfileFields): Promise<UserProfileRow> {
+  const row = await one<UserProfileRow>(
+    `INSERT INTO user_profiles (user_id, avatar, tagline, title, favorite_cards, card_back, chip_color, emotes, stats_public, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())
+     ON CONFLICT (user_id) DO UPDATE SET
+       avatar = EXCLUDED.avatar, tagline = EXCLUDED.tagline, title = EXCLUDED.title,
+       favorite_cards = EXCLUDED.favorite_cards, card_back = EXCLUDED.card_back,
+       chip_color = EXCLUDED.chip_color, emotes = EXCLUDED.emotes,
+       stats_public = EXCLUDED.stats_public, updated_at = now()
+     RETURNING *`,
+    [userId, p.avatar, p.tagline, p.title, p.favorite_cards, p.card_back, p.chip_color, p.emotes, p.stats_public]
+  );
+  return row!;
 }
 
 export async function listUsers(): Promise<User[]> {

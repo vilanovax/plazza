@@ -55,6 +55,9 @@ export default function LobbyPage() {
         <div style={{ textAlign: "left" }}>
           <div style={{ color: "var(--gold)", fontWeight: 800, fontSize: 18 }}>{me.chipBalance.toLocaleString("fa")} ژتون</div>
           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <Link href="/profile" className="btn btn-ghost" style={{ fontSize: 13, padding: "0.35rem 0.7rem" }}>
+              پروفایل
+            </Link>
             <Link href="/account" className="btn btn-ghost" style={{ fontSize: 13, padding: "0.35rem 0.7rem" }}>
               حساب من
             </Link>

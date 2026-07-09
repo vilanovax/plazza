@@ -18,7 +18,7 @@ interface TournamentBanner {
   onBreak?: boolean; lateRegOpen?: boolean;
 }
 import { evaluate, CATEGORY_NAMES_FA } from "@/lib/poker/evaluator";
-import type { Card } from "@/lib/poker/cards";
+import { stringToCard, type Card } from "@/lib/poker/cards";
 
 type SeatVM = PublicGameState["seats"][number];
 
@@ -452,8 +452,11 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreActio
 }
 
 interface PlayerStats {
-  displayName: string; handsPlayed: number; handsWon: number; winRate: number;
-  buyInCount: number; totalBought: number; net: number;
+  displayName: string;
+  profile?: { avatar: string; title: string; tagline: string; favoriteCards: string[]; cardBack: string; chipColor: string };
+  statsPublic?: boolean;
+  handsPlayed?: number; handsWon?: number; winRate?: number;
+  buyInCount?: number; totalBought?: number; net?: number;
 }
 function StatRow({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
@@ -481,16 +484,31 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
           <h3 style={{ margin: 0 }}>📊 آمار {stats?.displayName ?? name}</h3>
           <button onClick={onClose} className="btn btn-ghost" style={{ padding: "0.2rem 0.5rem" }}>✕</button>
         </div>
+        {stats?.profile && (stats.profile.avatar || stats.profile.title || stats.profile.tagline || stats.profile.favoriteCards.length > 0) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+            {stats.profile.avatar && <div style={{ fontSize: 32 }}>{stats.profile.avatar}</div>}
+            <div style={{ flex: 1 }}>
+              {stats.profile.title && <div style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700 }}>«{stats.profile.title}»</div>}
+              {stats.profile.tagline && <div style={{ color: "var(--muted)", fontSize: 12 }}>“{stats.profile.tagline}”</div>}
+            </div>
+            <div style={{ display: "flex", gap: 3 }}>
+              {stats.profile.favoriteCards.map((c) => <PlayingCard key={c} card={stringToCard(c)} small />)}
+            </div>
+          </div>
+        )}
         <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>آمار این بازیکن در این میز</div>
         {err && <div style={{ color: "var(--danger)" }}>{err}</div>}
         {!stats && !err && <div style={{ color: "var(--muted)" }}>در حال بارگذاری…</div>}
-        {stats && (
+        {stats && stats.statsPublic === false && (
+          <div style={{ color: "var(--muted)", fontSize: 13 }}>این بازیکن آمار خود را خصوصی کرده است.</div>
+        )}
+        {stats && stats.statsPublic !== false && stats.handsPlayed !== undefined && (
           <div>
-            <StatRow label="دست‌های برنده / کل" value={`${stats.handsWon.toLocaleString("fa")} / ${stats.handsPlayed.toLocaleString("fa")}`} />
-            <StatRow label="درصد برد" value={`${stats.winRate.toLocaleString("fa")}٪`} color="var(--gold)" />
-            <StatRow label="کل ژتون خریداری‌شده" value={stats.totalBought.toLocaleString("fa")} color="var(--accent)" />
-            <StatRow label="تعداد دفعات خرید" value={stats.buyInCount.toLocaleString("fa")} />
-            <StatRow label="سود/زیان خالص" value={`${stats.net >= 0 ? "+" : ""}${stats.net.toLocaleString("fa")}`} color={stats.net >= 0 ? "var(--accent)" : "var(--danger)"} />
+            <StatRow label="دست‌های برنده / کل" value={`${(stats.handsWon ?? 0).toLocaleString("fa")} / ${(stats.handsPlayed ?? 0).toLocaleString("fa")}`} />
+            <StatRow label="درصد برد" value={`${(stats.winRate ?? 0).toLocaleString("fa")}٪`} color="var(--gold)" />
+            <StatRow label="کل ژتون خریداری‌شده" value={(stats.totalBought ?? 0).toLocaleString("fa")} color="var(--accent)" />
+            <StatRow label="تعداد دفعات خرید" value={(stats.buyInCount ?? 0).toLocaleString("fa")} />
+            <StatRow label="سود/زیان خالص" value={`${(stats.net ?? 0) >= 0 ? "+" : ""}${(stats.net ?? 0).toLocaleString("fa")}`} color={(stats.net ?? 0) >= 0 ? "var(--accent)" : "var(--danger)"} />
           </div>
         )}
         {canKick && onKick && (
