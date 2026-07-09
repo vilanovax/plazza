@@ -8,8 +8,11 @@ services:
       POSTGRES_USER: poker
       POSTGRES_PASSWORD: poker
       POSTGRES_DB: poker
+    # Host port 5433 avoids clashing with a Postgres you may already run on
+    # 5432. The app talks to the DB over the internal network (db:5432), so
+    # this mapping is only for optional external inspection.
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
