@@ -3,7 +3,9 @@
  * Credentials come from SEED_ADMIN_USERNAME / SEED_ADMIN_PASSWORD.
  */
 import bcrypt from "bcryptjs";
-import { pool, one } from "../src/lib/db";
+import { getPool, one } from "../src/lib/db";
+
+const pool = getPool();
 
 async function main() {
   const username = process.env.SEED_ADMIN_USERNAME ?? "admin";

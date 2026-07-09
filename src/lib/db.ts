@@ -1,6 +1,7 @@
 /**
  * Postgres connection pool + tiny query helpers.
- * Import `query`/`one`/`tx` everywhere; never create ad-hoc clients.
+ * The pool is created lazily on first use so importing this module during
+ * `next build` (which has no DATABASE_URL) never fails.
  */
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 
@@ -22,14 +23,18 @@ function createPool(): Pool {
   });
 }
 
-export const pool: Pool = global.__pgPool ?? createPool();
-if (process.env.NODE_ENV !== "production") global.__pgPool = pool;
+export function getPool(): Pool {
+  if (!global.__pgPool) {
+    global.__pgPool = createPool();
+  }
+  return global.__pgPool;
+}
 
 export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params: unknown[] = []
 ): Promise<T[]> {
-  const res = await pool.query<T>(text, params as never[]);
+  const res = await getPool().query<T>(text, params as never[]);
   return res.rows;
 }
 
@@ -43,7 +48,7 @@ export async function one<T extends QueryResultRow = QueryResultRow>(
 
 /** Run a function inside a transaction, rolling back on error. */
 export async function tx<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
+  const client = await getPool().connect();
   try {
     await client.query("BEGIN");
     const result = await fn(client);

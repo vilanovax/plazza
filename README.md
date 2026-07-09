@@ -56,7 +56,27 @@ Socket.IO handlers ──► GameManager (in-memory authority, 1 game/table)
 
 ---
 
-## راه‌اندازی / Setup
+## اجرای سریع با Docker (پیشنهادی) / One‑command Docker
+
+تنها پیش‌نیاز: **Docker Desktop**. نیازی به نصب دستی Node یا Postgres نیست — دیتابیس،
+مهاجرت و ساخت ادمین همه خودکار انجام می‌شود.
+
+```bash
+git clone https://github.com/vilanovax/vita.git poker
+cd poker
+git checkout claude/online-poker-pwa-2f19xn
+docker compose up --build
+```
+
+سپس مرورگر را روی **http://localhost:3001** باز کنید و با `admin` / `admin1234` وارد شوید.
+برای توقف: `docker compose down` (برای پاک‌کردن داده‌ها: `docker compose down -v`).
+
+> رمز نشست: در محیط تولید حتماً `AUTH_SECRET` را ست کنید (مثلاً در یک فایل `.env`
+> کنار `docker-compose.yml`). مقدار پیش‌فرض فقط برای توسعه است.
+
+---
+
+## راه‌اندازی دستی / Manual Setup
 
 پیش‌نیاز: Node.js 20+ و PostgreSQL 14+.
 

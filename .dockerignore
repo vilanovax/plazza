@@ -1,0 +1,10 @@
+node_modules
+.next
+.server
+.git
+.env
+.env.*
+npm-debug.log*
+*.tsbuildinfo
+coverage
+e2e-test.mjs

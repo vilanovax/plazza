@@ -6,7 +6,9 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { pool } from "../src/lib/db";
+import { getPool } from "../src/lib/db";
+
+const pool = getPool();
 
 const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "migrations");
 

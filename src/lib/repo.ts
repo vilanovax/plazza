@@ -3,7 +3,7 @@
  * user's bank balance and the ledger history can never drift apart.
  */
 import type { PoolClient } from "pg";
-import { query, one, tx, pool } from "./db";
+import { query, one, tx, getPool } from "./db";
 import type {
   AdminSettings,
   LedgerEntry,
@@ -319,4 +319,4 @@ export async function insertAction(
   );
 }
 
-export { pool };
+export { getPool };
