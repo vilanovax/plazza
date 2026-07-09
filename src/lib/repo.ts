@@ -337,6 +337,69 @@ export async function finishHand(
   );
 }
 
+export interface HandPlayerRow {
+  seatIndex: number;
+  userId: string;
+  won: boolean;
+  net: number;
+}
+
+/** Record every dealt-in player of a finished hand (for stats). */
+export async function insertHandPlayers(
+  handId: string,
+  tableId: string,
+  rows: HandPlayerRow[]
+): Promise<void> {
+  if (rows.length === 0) return;
+  const values: unknown[] = [];
+  const tuples = rows.map((r, i) => {
+    const b = i * 4;
+    values.push(handId, tableId, r.userId, r.seatIndex);
+    return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${rows.length * 4 + i * 2 + 1}, $${rows.length * 4 + i * 2 + 2})`;
+  });
+  for (const r of rows) values.push(r.won, r.net);
+  await query(
+    `INSERT INTO hand_players (hand_id, table_id, user_id, seat_index, won, net)
+     VALUES ${tuples.join(", ")}
+     ON CONFLICT (hand_id, seat_index) DO NOTHING`,
+    values
+  );
+}
+
+export interface PlayerTableStats {
+  handsPlayed: number;
+  handsWon: number;
+  buyInCount: number;
+  totalBought: number;
+  net: number;
+}
+
+/** Per-table statistics for one player. */
+export async function getPlayerTableStats(tableId: string, userId: string): Promise<PlayerTableStats> {
+  const row = await one<{
+    hands_played: string;
+    hands_won: string;
+    buyin_count: string;
+    total_bought: string;
+    net: string;
+  }>(
+    `SELECT
+       (SELECT count(*) FROM hand_players WHERE table_id = $1 AND user_id = $2) AS hands_played,
+       (SELECT count(*) FROM hand_players WHERE table_id = $1 AND user_id = $2 AND won) AS hands_won,
+       (SELECT count(*) FROM ledger_entries WHERE table_id = $1 AND user_id = $2 AND type IN ('buy_in','topup')) AS buyin_count,
+       (SELECT COALESCE(SUM(-amount),0) FROM ledger_entries WHERE table_id = $1 AND user_id = $2 AND type IN ('buy_in','topup')) AS total_bought,
+       (SELECT COALESCE(SUM(net),0) FROM hand_players WHERE table_id = $1 AND user_id = $2) AS net`,
+    [tableId, userId]
+  );
+  return {
+    handsPlayed: Number(row?.hands_played ?? 0),
+    handsWon: Number(row?.hands_won ?? 0),
+    buyInCount: Number(row?.buyin_count ?? 0),
+    totalBought: Number(row?.total_bought ?? 0),
+    net: Number(row?.net ?? 0),
+  };
+}
+
 export async function insertAction(
   handId: string,
   seatIndex: number,

@@ -151,7 +151,19 @@ const listeners = new Set<() => void>();
 
 export function subscribeMuted(cb: () => void): () => void {
   listeners.add(cb);
-  return () => listeners.delete(cb);
+  // Honour the external-store contract across tabs: when another tab changes
+  // the preference, re-notify (and keep the audio engine in sync).
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === MUTE_KEY) {
+      sound.setMuted(e.newValue === "1");
+      cb();
+    }
+  };
+  if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
+  return () => {
+    listeners.delete(cb);
+    if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);
+  };
 }
 
 export function getMutedSnapshot(): boolean {

@@ -26,6 +26,8 @@ interface TableRuntime {
   currentHandId?: string;
   actionTimer?: NodeJS.Timeout;
   nextHandTimer?: NodeJS.Timeout;
+  /** Seats dealt into the current hand, captured for per-hand stats. */
+  handParticipants?: Array<{ seatIndex: number; userId: string }>;
 }
 
 function room(tableId: string): string {
@@ -222,6 +224,10 @@ export class GameManager {
     rt.nextHandTimer = undefined;
     if (!rt.game.canStartHand()) return;
     rt.game.startHand();
+    // Snapshot who was dealt into this hand (for per-player stats).
+    rt.handParticipants = rt.game.seats
+      .filter((s) => s.userId && (s.holeCards?.length ?? 0) === 2)
+      .map((s) => ({ seatIndex: s.seatIndex, userId: s.userId as string }));
     try {
       rt.currentHandId = await repo.insertHand(
         rt.tableId,
@@ -288,6 +294,26 @@ export class GameManager {
         console.error("finishHand failed", err);
       }
     }
+    // Record per-player participation + result for this hand (stats).
+    if (rt.currentHandId && rt.handParticipants?.length && g.lastResult) {
+      const result = g.lastResult;
+      const rows = rt.handParticipants.map((p) => {
+        const winnings = result.pots.reduce(
+          (sum, pot) => sum + pot.winners.filter((w) => w.seatIndex === p.seatIndex).reduce((a, w) => a + w.amount, 0),
+          0
+        );
+        const seat = g.seats[p.seatIndex];
+        const committed = seat && seat.userId === p.userId ? seat.committedThisHand : 0;
+        return { seatIndex: p.seatIndex, userId: p.userId, won: winnings > 0, net: winnings - committed };
+      });
+      try {
+        await repo.insertHandPlayers(rt.currentHandId, rt.tableId, rows);
+      } catch (err) {
+        console.error("insertHandPlayers failed", err);
+      }
+    }
+    rt.handParticipants = undefined;
+
     // Sync each occupied seat's stack to the DB (survives restart).
     for (const s of g.seats) {
       if (s.userId) {

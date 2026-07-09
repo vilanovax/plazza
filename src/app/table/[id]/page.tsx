@@ -6,7 +6,7 @@ import { useTableSocket } from "@/components/useTableSocket";
 import { useTableSounds } from "@/components/useTableSounds";
 import { DealerAvatar } from "@/components/DealerAvatar";
 import { PlayingCard } from "@/components/PlayingCard";
-import { fetchMe, type Me } from "@/lib/client/api";
+import { api, fetchMe, type Me } from "@/lib/client/api";
 import type { PublicGameState, PlayerAction, TableConfig } from "@/lib/poker/types";
 import { evaluate, CATEGORY_NAMES_FA } from "@/lib/poker/evaluator";
 import type { Card } from "@/lib/poker/cards";
@@ -32,6 +32,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   const { state, connected, error, clearError, sit, leaveSeat, act, topup } = useTableSocket(id);
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
+  const [statsFor, setStatsFor] = useState<{ userId: string; name: string } | null>(null);
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
 
@@ -105,7 +106,14 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           return (
             <div key={i} style={{ position: "absolute", left: `${pos.x}%`, top: `${pos.y}%`, transform: "translate(-50%,-50%)", width: 96 }}>
               {occupied ? (
-                <SeatView seat={seat!} isTurn={isTurn} isButton={isButton} community={state?.community ?? []} deadline={isTurn ? state?.actionDeadline : undefined} />
+                <SeatView
+                  seat={seat!}
+                  isTurn={isTurn}
+                  isButton={isButton}
+                  community={state?.community ?? []}
+                  deadline={isTurn ? state?.actionDeadline : undefined}
+                  onSelect={() => seat!.userId && setStatsFor({ userId: seat!.userId, name: seat!.name ?? "بازیکن" })}
+                />
               ) : (
                 <button className="btn btn-ghost" style={{ width: "100%", fontSize: 12, padding: "0.5rem" }}
                   onClick={() => mySeat ? null : setSitSeat(i)} disabled={!!mySeat}>
@@ -137,6 +145,10 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           onCancel={() => setSitSeat(null)}
           onSit={(buyIn) => { sit(sitSeat, buyIn); setSitSeat(null); }} />
       )}
+
+      {statsFor && (
+        <PlayerStatsModal tableId={id} userId={statsFor.userId} name={statsFor.name} onClose={() => setStatsFor(null)} />
+      )}
     </main>
   );
 }
@@ -148,15 +160,15 @@ function seatPosition(index: number, viewerSeat: number | null, n: number) {
   return { x: 50 + 44 * Math.cos(theta), y: 50 + 43 * Math.sin(theta) };
 }
 
-function SeatView({ seat, isTurn, isButton, community, deadline }: {
-  seat: SeatVM; isTurn: boolean; isButton: boolean; community: Card[]; deadline?: number;
+function SeatView({ seat, isTurn, isButton, community, deadline, onSelect }: {
+  seat: SeatVM; isTurn: boolean; isButton: boolean; community: Card[]; deadline?: number; onSelect?: () => void;
 }) {
   const folded = seat.status === "folded";
   // Show the current best hand for any cards we can actually see (the viewer's
   // own during play, everyone's at showdown), from the flop onward.
   const handName = !folded ? currentHandName(seat.holeCards, community) : null;
   return (
-    <div style={{ textAlign: "center", opacity: folded ? 0.45 : 1 }}>
+    <div onClick={onSelect} style={{ textAlign: "center", opacity: folded ? 0.45 : 1, cursor: onSelect ? "pointer" : "default" }}>
       {seat.betThisRound > 0 && (
         <div style={{ color: "var(--gold)", fontSize: 12, marginBottom: 2 }}>شرط: {seat.betThisRound.toLocaleString("fa")}</div>
       )}
@@ -271,6 +283,53 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat }: {
           <button className="btn btn-primary" onClick={() => { topup(topupAmt); setShowTopup(false); }}>درخواست</button>
         </div>
       )}
+    </div>
+  );
+}
+
+interface PlayerStats {
+  displayName: string; handsPlayed: number; handsWon: number; winRate: number;
+  buyInCount: number; totalBought: number; net: number;
+}
+function StatRow({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}>
+      <span style={{ color: "var(--muted)" }}>{label}</span>
+      <b style={{ color: color ?? "var(--text)" }}>{value}</b>
+    </div>
+  );
+}
+function PlayerStatsModal({ tableId, userId, name, onClose }: {
+  tableId: string; userId: string; name: string; onClose: () => void;
+}) {
+  const [stats, setStats] = useState<PlayerStats | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    api<PlayerStats>(`/api/tables/${tableId}/player/${userId}/stats`)
+      .then(setStats)
+      .catch((e) => setErr((e as Error).message));
+  }, [tableId, userId]);
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "center", zIndex: 60, padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} className="panel" style={{ padding: 20, width: "100%", maxWidth: 340 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+          <h3 style={{ margin: 0 }}>📊 آمار {name}</h3>
+          <button onClick={onClose} className="btn btn-ghost" style={{ padding: "0.2rem 0.5rem" }}>✕</button>
+        </div>
+        <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>آمار این بازیکن در این میز</div>
+        {err && <div style={{ color: "var(--danger)" }}>{err}</div>}
+        {!stats && !err && <div style={{ color: "var(--muted)" }}>در حال بارگذاری…</div>}
+        {stats && (
+          <div>
+            <StatRow label="دست‌های برنده / کل" value={`${stats.handsWon.toLocaleString("fa")} / ${stats.handsPlayed.toLocaleString("fa")}`} />
+            <StatRow label="درصد برد" value={`${stats.winRate.toLocaleString("fa")}٪`} color="var(--gold)" />
+            <StatRow label="کل ژتون خریداری‌شده" value={stats.totalBought.toLocaleString("fa")} color="var(--accent)" />
+            <StatRow label="تعداد دفعات خرید" value={stats.buyInCount.toLocaleString("fa")} />
+            <StatRow label="سود/زیان خالص" value={`${stats.net >= 0 ? "+" : ""}${stats.net.toLocaleString("fa")}`} color={stats.net >= 0 ? "var(--accent)" : "var(--danger)"} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
