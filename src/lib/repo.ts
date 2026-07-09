@@ -418,18 +418,19 @@ export interface HandPlayerRow {
   userId: string;
   won: boolean;
   net: number;
+  /** Made-hand category at showdown (0-8), or null if folded / no showdown. */
+  bestHandRank?: number | null;
 }
 
 function handPlayersInsert(handId: string, tableId: string, rows: HandPlayerRow[]): { text: string; values: unknown[] } {
   const values: unknown[] = [];
-  const tuples = rows.map((r, i) => {
-    const b = i * 4;
-    values.push(handId, tableId, r.userId, r.seatIndex);
-    return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${rows.length * 4 + i * 2 + 1}, $${rows.length * 4 + i * 2 + 2})`;
+  const tuples = rows.map((r) => {
+    const b = values.length;
+    values.push(handId, tableId, r.userId, r.seatIndex, r.won, r.net, r.bestHandRank ?? null);
+    return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${b + 5}, $${b + 6}, $${b + 7})`;
   });
-  for (const r of rows) values.push(r.won, r.net);
   return {
-    text: `INSERT INTO hand_players (hand_id, table_id, user_id, seat_index, won, net)
+    text: `INSERT INTO hand_players (hand_id, table_id, user_id, seat_index, won, net, best_hand_rank)
      VALUES ${tuples.join(", ")}
      ON CONFLICT (hand_id, seat_index) DO NOTHING`,
     values,
@@ -491,6 +492,8 @@ export interface GlobalPlayerStats {
   buyInCount: number;
   totalBought: number;
   netLifetime: number;
+  /** Best made-hand category ever reached at showdown (0-8), or null. */
+  bestHandRank: number | null;
 }
 
 /** Lifetime stats for a player across every table (for the public profile). */
@@ -505,7 +508,8 @@ export async function getGlobalPlayerStats(userId: string): Promise<GlobalPlayer
           WHERE hp.user_id = $1 AND hp.won) AS biggest_pot,
        (SELECT count(*) FROM ledger_entries WHERE user_id = $1 AND type IN ('buy_in','topup')) AS buyin_count,
        (SELECT COALESCE(SUM(-amount), 0) FROM ledger_entries WHERE user_id = $1 AND type IN ('buy_in','topup')) AS total_bought,
-       (SELECT COALESCE(SUM(net), 0) FROM hand_players WHERE user_id = $1) AS net_lifetime`,
+       (SELECT COALESCE(SUM(net), 0) FROM hand_players WHERE user_id = $1) AS net_lifetime,
+       (SELECT MAX(best_hand_rank) FROM hand_players WHERE user_id = $1) AS best_hand_rank`,
     [userId]
   );
   return {
@@ -517,6 +521,7 @@ export async function getGlobalPlayerStats(userId: string): Promise<GlobalPlayer
     buyInCount: Number(row?.buyin_count ?? 0),
     totalBought: Number(row?.total_bought ?? 0),
     netLifetime: Number(row?.net_lifetime ?? 0),
+    bestHandRank: row?.best_hand_rank == null ? null : Number(row.best_hand_rank),
   };
 }
 

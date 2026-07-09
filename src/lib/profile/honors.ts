@@ -21,5 +21,7 @@ export function deriveHonors(s: GlobalPlayerStats): Honor[] {
   if (s.netLifetime > 0) honors.push({ icon: "📈", label: "سودده" });
   const winRate = s.handsPlayed > 0 ? s.handsWon / s.handsPlayed : 0;
   if (s.handsPlayed >= 50 && winRate >= 0.35) honors.push({ icon: "🔥", label: "داغ" });
+  // Four-of-a-kind (7) or straight flush (8) ever reached.
+  if (s.bestHandRank != null && s.bestHandRank >= 7) honors.push({ icon: "👑", label: "دست نادر" });
   return honors;
 }

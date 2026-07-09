@@ -7,10 +7,10 @@ import { stringToCard } from "@/lib/poker/cards";
 import { PlayingCard } from "@/components/PlayingCard";
 
 interface Honor { icon: string; label: string }
-interface Stats { handsPlayed: number; handsWon: number; winRate: number; tablesPlayed: number; biggestWin: number; biggestPot: number; buyInCount: number; totalBought: number; netLifetime: number }
+interface Stats { handsPlayed: number; handsWon: number; winRate: number; tablesPlayed: number; biggestWin: number; biggestPot: number; buyInCount: number; totalBought: number; netLifetime: number; bestHandName: string | null }
 interface PublicProfile {
   userId: string; displayName: string; avatar: string; title: string; tagline: string;
-  favoriteCards: string[]; cardBack: string; chipColor: string; statsPublic: boolean;
+  favoriteCards: string[]; cardBack: string; chipColor: string; statsVisible: boolean;
   stats?: Stats; honors?: Honor[];
 }
 
@@ -19,11 +19,21 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
   const router = useRouter();
   const [p, setP] = useState<PublicProfile | null>(null);
   const [err, setErr] = useState("");
+  // Reset view state during render when the id changes (React's documented
+  // pattern) so the previous profile/error never lingers on the new page.
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) { setPrevId(id); setP(null); setErr(""); }
 
   useEffect(() => {
+    // Guard against out-of-order responses when navigating between profiles.
+    let stale = false;
     fetchMe()
-      .then((u) => (u ? api<{ profile: PublicProfile }>(`/api/users/${id}/profile`).then((d) => setP(d.profile)) : router.replace("/login")))
-      .catch((e) => setErr(e instanceof Error ? e.message : "خطا"));
+      .then((u) => {
+        if (!u) return router.replace("/login");
+        return api<{ profile: PublicProfile }>(`/api/users/${id}/profile`).then((d) => { if (!stale) setP(d.profile); });
+      })
+      .catch((e) => { if (!stale) setErr(e instanceof Error ? e.message : "خطا"); });
+    return () => { stale = true; };
   }, [id, router]);
 
   if (err) return <main style={{ padding: 24, color: "var(--danger,#e33)" }}>{err}</main>;
@@ -66,6 +76,8 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
             <Stat label="درصد برد" value={`${p.stats.winRate.toLocaleString("fa")}٪`} gold />
             <Stat label="بزرگ‌ترین پات برده‌شده" value={p.stats.biggestPot.toLocaleString("fa")} gold />
             <Stat label="بزرگ‌ترین برد" value={p.stats.biggestWin.toLocaleString("fa")} />
+            <Stat label="بهترین دست" value={p.stats.bestHandName ?? "—"} gold />
+            <Stat label="تعداد دفعات خرید" value={p.stats.buyInCount.toLocaleString("fa")} />
             <Stat label="تعداد میزهای بازی‌شده" value={p.stats.tablesPlayed.toLocaleString("fa")} />
             <Stat label="کل ژتون خریداری‌شده" value={p.stats.totalBought.toLocaleString("fa")} />
             <Stat label="سود/زیان کل" value={`${p.stats.netLifetime >= 0 ? "+" : ""}${p.stats.netLifetime.toLocaleString("fa")}`} color={p.stats.netLifetime >= 0 ? "var(--accent)" : "var(--danger)"} />

@@ -14,6 +14,7 @@
 import type { Server as SocketIOServer } from "socket.io";
 import { HoldemGame, InvalidActionError } from "../lib/poker/engine";
 import { cardToString } from "../lib/poker/cards";
+import { evaluate } from "../lib/poker/evaluator";
 import type { LogEntry, PlayerAction, TableConfig } from "../lib/poker/types";
 import { tx } from "../lib/db";
 import * as repo from "../lib/repo";
@@ -490,8 +491,14 @@ export class GameManager {
         const seat = g.seats[p.seatIndex];
         const committed = seat && seat.userId === p.userId ? seat.committedThisHand : 0;
         const net = winnings - committed;
+        // Record the made-hand category for players who reached a full showdown
+        // (5 community cards, not folded) — used for "best hand ever" on profiles.
+        let bestHandRank: number | null = null;
+        if (seat && seat.holeCards?.length === 2 && g.community.length === 5 && seat.status !== "folded") {
+          bestHandRank = evaluate([...seat.holeCards, ...g.community]).category;
+        }
         // "Won" = actually profitable this hand (net > 0), correct for split/side pots.
-        return { seatIndex: p.seatIndex, userId: p.userId, won: net > 0, net };
+        return { seatIndex: p.seatIndex, userId: p.userId, won: net > 0, net, bestHandRank };
       });
       try {
         await tx(async (client) => {
@@ -624,6 +631,10 @@ export class GameManager {
   private async cacheProfile(rt: TableRuntime, userId: string): Promise<void> {
     try {
       const p = await repo.getProfile(userId);
+      // Re-check seat membership AFTER the async fetch: the player may have left
+      // (and had their cache entry evicted) while we awaited, and we must not
+      // resurrect a stale entry for a now-unseated player.
+      if (!rt.game.seats.some((s) => s.userId === userId)) return;
       rt.profiles.set(userId, {
         avatar: p?.avatar ?? "",
         title: p?.title ?? "",
