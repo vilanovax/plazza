@@ -28,6 +28,8 @@ function fail(socket: Socket, err: unknown) {
 export function registerSocketHandlers(io: SocketIOServer): void {
   gameManager.setIo(io);
   tournamentManager.init();
+  // Rebuild live tournament state (timers, blinds, dealing) after a restart.
+  void tournamentManager.resumeRunning();
 
   // Authenticate the handshake.
   io.use(async (socket, nextFn) => {

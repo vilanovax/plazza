@@ -33,6 +33,46 @@ export class TournamentManager {
     };
   }
 
+  /**
+   * Rebuild in-memory tournament state after a server restart. The DB is the
+   * source of truth (status/current_level/level_ends_at + persisted seat stacks);
+   * this re-maps tables, restores the current blinds/break, re-arms the blind
+   * timer from the persisted deadline, and resumes dealing.
+   */
+  async resumeRunning(): Promise<void> {
+    let running: TournamentRow[] = [];
+    try {
+      running = await repo.listTournaments(["running"]);
+    } catch (err) {
+      console.error("resumeRunning: failed to list tournaments", err);
+      return;
+    }
+    for (const t of running) {
+      if (!t.table_id) continue;
+      try {
+        this.tableToTournament.set(t.table_id, t.id);
+        await gameManager.ensureLoaded(t.table_id); // rehydrate seats + isTournament flag
+        const level = this.levelOf(t, t.current_level || 1);
+        if (level.isBreak) {
+          await gameManager.setPaused(t.table_id, true);
+        } else {
+          await gameManager.setBlinds(t.table_id, level.sb, level.bb, level.ante);
+        }
+        // Re-arm the level timer from the persisted deadline (fire ~immediately
+        // if it already elapsed during downtime). Don't schedule past the last level.
+        const isTerminal = t.current_level >= t.blind_schedule.length;
+        if (!isTerminal) {
+          const remaining = t.level_ends_at ? Date.parse(t.level_ends_at) - Date.now() : 0;
+          this.scheduleLevel(t.id, Math.max(0, remaining));
+        }
+        if (!level.isBreak) gameManager.startTable(t.table_id);
+        gameManager.logMessage(t.table_id, "تورنومنت پس از راه‌اندازی مجدد سرور ادامه یافت");
+      } catch (err) {
+        console.error(`resumeRunning: tournament ${t.id} failed to resume`, err);
+      }
+    }
+  }
+
   private levelOf(t: TournamentRow, level: number) {
     if (!Array.isArray(t.blind_schedule) || t.blind_schedule.length === 0) {
       throw new InvalidActionError("جدول بلایند تورنومنت نامعتبر است");

@@ -491,11 +491,13 @@ export class GameManager {
         const seat = g.seats[p.seatIndex];
         const committed = seat && seat.userId === p.userId ? seat.committedThisHand : 0;
         const net = winnings - committed;
-        // Record the made-hand category for players who reached a full showdown
-        // (5 community cards, not folded) — used for "best hand ever" on profiles.
+        // Record the made-hand category only for players who actually reached a
+        // showdown — result.shownCards is populated for revealed hands and stays
+        // empty on a fold-win, so an unrevealed river fold-win isn't counted.
         let bestHandRank: number | null = null;
-        if (seat && seat.holeCards?.length === 2 && g.community.length === 5 && seat.status !== "folded") {
-          bestHandRank = evaluate([...seat.holeCards, ...g.community]).category;
+        const shown = result.shownCards[p.seatIndex];
+        if (seat && shown?.length === 2 && g.community.length === 5 && seat.status !== "folded") {
+          bestHandRank = evaluate([...shown, ...g.community]).category;
         }
         // "Won" = actually profitable this hand (net > 0), correct for split/side pots.
         return { seatIndex: p.seatIndex, userId: p.userId, won: net > 0, net, bestHandRank };
