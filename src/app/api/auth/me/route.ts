@@ -7,7 +7,7 @@ export async function GET() {
     const session = await getSession();
     if (!session) return json({ user: null });
     const user = await repo.getUserById(session.sub);
-    if (!user) return json({ user: null });
+    if (!user || !user.is_active) return json({ user: null });
     return json({
       user: {
         id: user.id,

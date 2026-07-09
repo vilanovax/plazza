@@ -9,7 +9,13 @@ const pool = getPool();
 
 async function main() {
   const username = process.env.SEED_ADMIN_USERNAME ?? "admin";
-  const password = process.env.SEED_ADMIN_PASSWORD ?? "admin1234";
+  const explicitPassword = process.env.SEED_ADMIN_PASSWORD;
+  // Never silently seed a predictable admin credential outside development.
+  if (!explicitPassword && process.env.NODE_ENV === "production") {
+    console.error("Refusing to seed a default admin password in production. Set SEED_ADMIN_PASSWORD.");
+    process.exit(1);
+  }
+  const password = explicitPassword ?? "admin1234";
 
   const existing = await one<{ id: string }>("SELECT id FROM users WHERE username = $1", [username]);
   if (existing) {

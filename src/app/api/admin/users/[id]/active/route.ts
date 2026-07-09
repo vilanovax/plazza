@@ -6,7 +6,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     await requireAdmin();
     const { id } = await params;
     const { active } = await req.json();
-    await repo.setUserActive(id, Boolean(active));
+    // Strict check: a JSON string "false" must not be treated as truthy.
+    await repo.setUserActive(id, active === true || active === "true");
     return json({ ok: true });
   });
 }

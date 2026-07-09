@@ -12,12 +12,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (!request || request.status !== "pending") return error("درخواست یافت نشد", 404);
 
     if (status === "approved") {
+      // Claim the request FIRST so it can only be applied once. If applying the
+      // chips then fails, revert the claim back to pending.
+      const claimed = await repo.decideTopup(id, "approved", admin.sub);
+      if (!claimed) return error("این درخواست قبلاً رسیدگی شده است", 409);
       try {
         await gameManager.topUp(request.table_id, request.user_id, Number(request.amount));
       } catch (err) {
+        await repo.reopenTopup(id);
         return error((err as Error).message ?? "اعمال تاپ‌آپ ناموفق بود");
       }
-      await repo.decideTopup(id, "approved", admin.sub);
     } else {
       await repo.decideTopup(id, "rejected", admin.sub);
     }

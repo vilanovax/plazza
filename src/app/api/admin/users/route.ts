@@ -25,6 +25,7 @@ export async function POST(req: Request) {
     await requireAdmin();
     const { username, password, displayName, role } = await req.json();
     if (!username || !password) return error("نام کاربری و رمز عبور لازم است");
+    if (String(password).length < 6) return error("رمز عبور باید حداقل ۶ کاراکتر باشد");
     if (await repo.getUserByUsername(username)) return error("این نام کاربری قبلاً ثبت شده است", 409);
     const hash = await hashPassword(String(password));
     const user = await repo.createUser(

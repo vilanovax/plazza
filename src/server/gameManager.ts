@@ -70,11 +70,13 @@ export class GameManager {
       }
       const rt: TableRuntime = { game, tableId };
       this.tables.set(tableId, rt);
-      this.loading.delete(tableId);
       return rt;
     })();
 
     this.loading.set(tableId, promise);
+    // Always clear the in-flight entry, even on failure, so a transient DB
+    // error doesn't permanently poison this table's load path.
+    promise.finally(() => this.loading.delete(tableId));
     return promise;
   }
 
@@ -95,17 +97,24 @@ export class GameManager {
     if (!user) throw new InvalidActionError("کاربر یافت نشد");
     if (user.chip_balance < buyIn) throw new InvalidActionError("موجودی ژتون شما کافی نیست");
 
-    // Debit the bank and seat the player atomically.
-    await tx(async (client) => {
-      await repo.applyLedgerTx(client, {
-        userId,
-        type: "buy_in",
-        amount: -buyIn,
-        tableId,
-        note: `ورود به میز`,
-      });
-    });
+    // Validate + mutate the in-memory seat FIRST (throws on an invalid seat).
+    // Only once seating succeeds do we debit the bank, so a rejected sit can
+    // never make chips disappear. If the debit then fails, undo the seat.
     rt.game.sit(seatIndex, userId, user.display_name, buyIn);
+    try {
+      await tx(async (client) => {
+        await repo.applyLedgerTx(client, {
+          userId,
+          type: "buy_in",
+          amount: -buyIn,
+          tableId,
+          note: `ورود به میز`,
+        });
+      });
+    } catch (err) {
+      rt.game.leave(seatIndex); // roll back the in-memory seat
+      throw err;
+    }
     await repo.upsertSeat(tableId, seatIndex, userId, buyIn, buyIn);
 
     this.maybeStartHand(rt);
@@ -134,8 +143,16 @@ export class GameManager {
     const user = await repo.getUserById(userId);
     if (!user || user.chip_balance < amount) throw new InvalidActionError("موجودی ژتون کافی نیست");
 
-    await repo.applyLedger({ userId, type: "topup", amount: -amount, tableId, note: "افزایش ژتون سر میز" });
+    // Mutate in-memory first (validates limits / mid-hand rule and throws),
+    // then debit the bank; roll back the stack if the debit fails.
+    const stackBefore = seat.stack;
     rt.game.topUp(seat.seatIndex, amount);
+    try {
+      await repo.applyLedger({ userId, type: "topup", amount: -amount, tableId, note: "افزایش ژتون سر میز" });
+    } catch (err) {
+      seat.stack = stackBefore; // undo
+      throw err;
+    }
     await repo.updateSeatStack(tableId, seat.seatIndex, seat.stack);
     this.maybeStartHand(rt);
     await this.broadcast(tableId);
@@ -144,6 +161,34 @@ export class GameManager {
   setConnected(tableId: string, userId: string, connected: boolean): void {
     const rt = this.tables.get(tableId);
     rt?.game.setConnected(userId, connected);
+  }
+
+  /**
+   * Tear down a live table: refuse while a hand is in progress, otherwise cash
+   * every seated player out to their bank, stop timers, and drop the runtime so
+   * no further play is possible once the DB row is marked closed.
+   */
+  async closeTable(tableId: string): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) return;
+    const phase = rt.game.phase;
+    if (phase !== "waiting" && phase !== "hand_complete") {
+      throw new InvalidActionError("تا پایان دست جاری نمی‌توان میز را بست");
+    }
+    if (rt.actionTimer) clearTimeout(rt.actionTimer);
+    if (rt.nextHandTimer) clearTimeout(rt.nextHandTimer);
+
+    for (const seat of rt.game.seats) {
+      if (seat.userId) {
+        const chips = rt.game.leave(seat.seatIndex);
+        if (chips > 0) {
+          await repo.applyLedger({ userId: seat.userId, type: "cash_out", amount: chips, tableId, note: "بسته‌شدن میز" }).catch(() => {});
+        }
+        await repo.removeSeat(tableId, seat.seatIndex).catch(() => {});
+      }
+    }
+    await this.broadcast(tableId);
+    this.tables.delete(tableId);
   }
 
   // --------------------------------------------------------------------------

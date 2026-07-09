@@ -104,6 +104,37 @@ test("all-in confrontation conserves chips and builds side pots", () => {
   assert.equal(paidOut + g.lastResult!.rake, before - totalChips(g) + paidOut);
 });
 
+test("leaving mid-hand keeps committed chips in the pot (conservation)", () => {
+  const g = new HoldemGame("tL", cfg());
+  g.sit(0, "u0", "A", 1000);
+  g.sit(1, "u1", "B", 1000);
+  g.sit(2, "u2", "C", 1000);
+  const before = totalChips(g);
+  g.startHand();
+  // Button 0, SB 1(5), BB 2(10). First to act = seat 0.
+  g.act("u0", { type: "raise", amount: 40 }); // seat 0 commits 40
+  // Seat 1 leaves mid-hand after having posted the small blind (committed 5).
+  const returned = g.leave(1);
+  // Their remaining stack is handed back; the 5 they committed stays in the pot.
+  assert.equal(returned, 995);
+  g.act("u2", { type: "fold" }); // BB folds
+  // Only seat 0 remains -> hand ends. Pot must include seat 1's committed 5.
+  assert.equal(g.phase, "hand_complete");
+  assert.equal(totalChips(g) + returned, before);
+});
+
+test("top-up rejects amounts outside the configured limits and non-finite", () => {
+  const g = new HoldemGame("tT", cfg({ topUpMin: 100, topUpMax: 500 }));
+  g.sit(0, "u0", "A", 1000);
+  g.sit(1, "u1", "B", 1000);
+  // Seat is sitting_out before the first hand, so top-up is allowed here.
+  assert.throws(() => g.topUp(0, 50), /حداقل/);
+  assert.throws(() => g.topUp(0, 999), /حداکثر/);
+  assert.throws(() => g.topUp(0, NaN), /نامعتبر/);
+  g.topUp(0, 200);
+  assert.equal(g.seats[0].stack, 1200);
+});
+
 test("rake is capped and skipped when no flop is seen", () => {
   const g = new HoldemGame("t5", cfg({ rakePercent: 10, rakeCap: 50, noFlopNoDrop: true }));
   g.sit(0, "u0", "A", 1000);

@@ -15,6 +15,8 @@ const migrationsDir = join(dirname(fileURLToPath(import.meta.url)), "migrations"
 async function main() {
   const client = await pool.connect();
   try {
+    // Serialise migration runs across concurrent deploys.
+    await client.query("SELECT pg_advisory_lock(918273645)");
     await client.query(`
       CREATE TABLE IF NOT EXISTS _migrations (
         name TEXT PRIMARY KEY,
@@ -48,6 +50,7 @@ async function main() {
     }
     console.log("Migrations complete.");
   } finally {
+    await client.query("SELECT pg_advisory_unlock(918273645)").catch(() => {});
     client.release();
     await pool.end();
   }

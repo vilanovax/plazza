@@ -34,7 +34,8 @@ export async function requireAdmin(): Promise<SessionPayload> {
 export function handler(fn: () => Promise<NextResponse>): Promise<NextResponse> {
   return fn().catch((err) => {
     if (err instanceof HttpError) return error(err.message, err.status);
+    // Log details server-side but never leak internals to the client.
     console.error("API error:", err);
-    return error(err?.message ?? "خطای سرور", 500);
+    return error("خطای داخلی سرور", 500);
   });
 }

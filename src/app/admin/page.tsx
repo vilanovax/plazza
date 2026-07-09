@@ -12,11 +12,13 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("users");
 
   useEffect(() => {
-    fetchMe().then((u) => {
-      if (!u) return router.replace("/login");
-      if (u.role !== "admin") return router.replace("/");
-      setOk(true);
-    });
+    fetchMe()
+      .then((u) => {
+        if (!u) return router.replace("/login");
+        if (u.role !== "admin") return router.replace("/");
+        setOk(true);
+      })
+      .catch(() => router.replace("/login"));
   }, [router]);
 
   if (!ok) return <main style={{ padding: 24 }}>در حال بارگذاری…</main>;
@@ -71,7 +73,7 @@ function UsersTab() {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
           <input placeholder="نام کاربری" value={nu.username} onChange={(e) => setNu({ ...nu, username: e.target.value })} style={inp} />
           <input placeholder="نام نمایشی" value={nu.displayName} onChange={(e) => setNu({ ...nu, displayName: e.target.value })} style={inp} />
-          <input placeholder="رمز عبور" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} style={inp} />
+          <input type="password" placeholder="رمز عبور" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} style={inp} />
           <select value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })} style={inp}>
             <option value="player">بازیکن</option><option value="admin">مدیر</option>
           </select>

@@ -35,9 +35,32 @@ async function main() {
 
   registerSocketHandlers(io);
 
+  httpServer.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`Port ${port} is already in use. Set PORT to a free port.`);
+    } else {
+      console.error("HTTP server error:", err);
+    }
+    process.exit(1);
+  });
+
   httpServer.listen(port, hostname, () => {
     console.log(`> Poker PWA ready on http://${hostname}:${port} (dev=${dev})`);
   });
+
+  // Graceful shutdown: stop accepting connections, close sockets, then exit.
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n${signal} received, shutting down...`);
+    io.close();
+    httpServer.close(() => process.exit(0));
+    // Hard stop if connections don't drain promptly.
+    setTimeout(() => process.exit(0), 5000).unref();
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }
 
 main().catch((err) => {

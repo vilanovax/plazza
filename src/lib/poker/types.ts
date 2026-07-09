@@ -63,6 +63,10 @@ export interface SeatState {
   committedThisHand: number;
   hasActedThisRound: boolean;
   isConnected: boolean;
+  /** After a sub-minimum all-in, players who already acted may only call/fold. */
+  cappedThisRound?: boolean;
+  /** Player asked to leave mid-hand; seat is removed once the hand settles. */
+  pendingLeave?: boolean;
   // Private — only ever sent to the owning player.
   holeCards?: Card[];
 }

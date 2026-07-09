@@ -93,12 +93,21 @@ export class HoldemGame {
     const seat = this.seats[seatIndex];
     if (!seat || seat.status === "empty") return 0;
     const chips = seat.stack;
-    if (seat.status === "active" || seat.status === "allin") {
-      // Fold them out of the live hand before removing.
+
+    const handInProgress = this.phase !== "waiting" && this.phase !== "hand_complete";
+    const inHand = seat.status === "active" || seat.status === "allin";
+    // If the player has chips committed to the current pot, we must NOT drop
+    // the seat now — its committedThisHand still belongs to the pot. Fold them,
+    // hand back their remaining stack, and clear the seat only at settlement.
+    if (handInProgress && (inHand || seat.committedThisHand > 0)) {
+      const wasTurn = this.currentTurnSeat === seatIndex;
       seat.status = "folded";
-      if (this.currentTurnSeat === seatIndex) this.advance();
+      seat.stack = 0; // remaining stack is returned to the bank by the caller
+      seat.pendingLeave = true;
+      if (wasTurn) this.advance();
+    } else {
+      this.seats[seatIndex] = emptySeat(seatIndex);
     }
-    this.seats[seatIndex] = emptySeat(seatIndex);
     return chips;
   }
 
@@ -110,7 +119,14 @@ export class HoldemGame {
   topUp(seatIndex: number, amount: number): void {
     const seat = this.seats[seatIndex];
     if (!seat || seat.status === "empty") throw new InvalidActionError("صندلی نامعتبر است");
-    // Chips added while in a hand only take effect between hands is simplest;
+    if (!Number.isFinite(amount) || amount <= 0) throw new InvalidActionError("مبلغ نامعتبر است");
+    if (this.config.topUpMin > 0 && amount < this.config.topUpMin) {
+      throw new InvalidActionError(`حداقل مبلغ ${this.config.topUpMin} است`);
+    }
+    if (this.config.topUpMax > 0 && amount > this.config.topUpMax) {
+      throw new InvalidActionError(`حداکثر مبلغ ${this.config.topUpMax} است`);
+    }
+    // Chips added while in a hand only take effect between hands (simplest);
     // here we allow it while sitting out / folded / between hands.
     if (seat.status === "active" || seat.status === "allin") {
       throw new InvalidActionError("در میانه دست نمی‌توان ژتون اضافه کرد");
@@ -148,6 +164,8 @@ export class HoldemGame {
       seat.betThisRound = 0;
       seat.committedThisHand = 0;
       seat.hasActedThisRound = false;
+      seat.cappedThisRound = false;
+      seat.pendingLeave = false;
       seat.holeCards = undefined;
       if (seat.userId && seat.stack > 0) seat.status = "active";
       else if (seat.userId) seat.status = "sitting_out";
@@ -257,7 +275,8 @@ export class HoldemGame {
     if (action.type === "allin") {
       target = maxTotal;
     } else {
-      target = Math.floor(action.amount ?? 0);
+      if (!Number.isFinite(action.amount)) throw new InvalidActionError("مبلغ نامعتبر است");
+      target = Math.floor(action.amount as number);
       if (action.type === "bet" && this.currentBet !== 0) {
         throw new InvalidActionError("اینجا باید رِیز کنید نه بِت");
       }
@@ -277,15 +296,32 @@ export class HoldemGame {
     if (target < minLegalTarget && !isAllIn) {
       throw new InvalidActionError(`حداقل مبلغ مجاز ${minLegalTarget} است`);
     }
+    // If a previous short all-in did not reopen the betting for this seat, they
+    // may only call or fold — not put in more than the current bet.
+    if (seat.cappedThisRound && target > this.currentBet) {
+      throw new InvalidActionError("اکشن باز نشده؛ فقط می‌توانید کال یا فولد کنید");
+    }
 
     const raiseSize = target - this.currentBet;
+    const fullRaise = raiseSize >= this.minRaise;
     this.commitChips(seat, target - seat.betThisRound);
-
-    // A full-size raise reopens the betting for everyone else.
-    if (raiseSize >= this.minRaise) this.minRaise = raiseSize;
     this.currentBet = target;
-    for (const s of this.seats) {
-      if (s !== seat && s.status === "active") s.hasActedThisRound = false;
+
+    if (fullRaise) {
+      // A full-size raise reopens the betting for everyone else.
+      this.minRaise = raiseSize;
+      for (const s of this.seats) {
+        if (s.status === "active" && s !== seat) {
+          s.hasActedThisRound = false;
+          s.cappedThisRound = false;
+        }
+      }
+    } else {
+      // Sub-minimum (short) all-in: players who have already acted are capped
+      // to call/fold; players yet to act keep full rights.
+      for (const s of this.seats) {
+        if (s !== seat && s.status === "active" && s.hasActedThisRound) s.cappedThisRound = true;
+      }
     }
   }
 
@@ -362,6 +398,7 @@ export class HoldemGame {
     this.currentTurnSeat = null;
     for (const seat of this.seats) {
       seat.betThisRound = 0;
+      seat.cappedThisRound = false;
       if (seat.status === "active") seat.hasActedThisRound = false;
     }
   }
@@ -452,6 +489,12 @@ export class HoldemGame {
       shownCards,
       deckSeed: this.deck?.seed,
     };
+
+    // Now that the pot has been read and distributed, remove players who asked
+    // to leave mid-hand (their committed chips have already been settled).
+    for (const s of this.seats) {
+      if (s.pendingLeave) this.seats[s.seatIndex] = emptySeat(s.seatIndex);
+    }
     this.phase = "hand_complete";
   }
 

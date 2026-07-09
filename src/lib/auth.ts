@@ -87,6 +87,11 @@ export async function sessionFromCookieHeader(header?: string): Promise<SessionP
   if (!header) return null;
   const match = header.split(";").map((c) => c.trim()).find((c) => c.startsWith(`${SESSION_COOKIE}=`));
   if (!match) return null;
-  const token = decodeURIComponent(match.slice(SESSION_COOKIE.length + 1));
+  let token: string;
+  try {
+    token = decodeURIComponent(match.slice(SESSION_COOKIE.length + 1));
+  } catch {
+    return null; // malformed cookie value
+  }
   return verifySession(token);
 }

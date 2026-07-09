@@ -139,7 +139,7 @@ export interface SettlementRow {
   net: number; // sum of unsettled signed amounts
 }
 export async function unsettledSummary(): Promise<SettlementRow[]> {
-  return query<SettlementRow>(
+  const rows = await query<{ user_id: string; username: string; display_name: string; net: string }>(
     `SELECT u.id AS user_id, u.username, u.display_name,
             COALESCE(SUM(l.amount), 0)::bigint AS net
        FROM users u
@@ -147,6 +147,8 @@ export async function unsettledSummary(): Promise<SettlementRow[]> {
       GROUP BY u.id
       ORDER BY net ASC`
   );
+  // pg returns bigint (OID 20) as a string; parse so callers get real numbers.
+  return rows.map((r) => ({ ...r, net: Number(r.net) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -157,8 +159,24 @@ export async function getSettings(): Promise<AdminSettings> {
   return row!;
 }
 
+const SETTINGS_COLUMNS = new Set<string>([
+  "default_small_blind",
+  "default_big_blind",
+  "default_rake_percent",
+  "default_rake_cap",
+  "default_think_time_sec",
+  "default_min_buyin",
+  "default_max_buyin",
+  "allow_self_topup",
+  "topup_min",
+  "topup_max",
+  "allow_self_register",
+]);
+
 export async function updateSettings(patch: Partial<AdminSettings>): Promise<AdminSettings> {
-  const keys = Object.keys(patch);
+  // Defense in depth: only ever interpolate known column names into the SQL,
+  // regardless of what any caller passes.
+  const keys = Object.keys(patch).filter((k) => SETTINGS_COLUMNS.has(k));
   if (keys.length === 0) return getSettings();
   const set = keys.map((k, i) => `${k} = $${i + 1}`).join(", ");
   const values = keys.map((k) => (patch as Record<string, unknown>)[k]);
@@ -261,15 +279,30 @@ export async function getTopup(id: string): Promise<TopupRequest | null> {
   return one<TopupRequest>("SELECT * FROM topup_requests WHERE id = $1", [id]);
 }
 
+/** Revert a claimed request back to pending (used when applying chips fails). */
+export async function reopenTopup(id: string): Promise<void> {
+  await query(
+    "UPDATE topup_requests SET status = 'pending', decided_by = NULL, decided_at = NULL WHERE id = $1",
+    [id]
+  );
+}
+
+/**
+ * Atomically claim a still-pending request and set its decision. Returns true
+ * only if THIS call transitioned it out of 'pending' — so a double-submit can
+ * never apply the same top-up twice.
+ */
 export async function decideTopup(
   id: string,
   status: "approved" | "rejected",
   adminId: string
-): Promise<void> {
-  await query(
-    "UPDATE topup_requests SET status = $2, decided_by = $3, decided_at = now() WHERE id = $1",
+): Promise<boolean> {
+  const rows = await query(
+    `UPDATE topup_requests SET status = $2, decided_by = $3, decided_at = now()
+     WHERE id = $1 AND status = 'pending' RETURNING id`,
     [id, status, adminId]
   );
+  return rows.length > 0;
 }
 
 // ---------------------------------------------------------------------------

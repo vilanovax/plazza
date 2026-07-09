@@ -6,8 +6,18 @@ import { useTableSocket } from "@/components/useTableSocket";
 import { PlayingCard } from "@/components/PlayingCard";
 import { fetchMe, type Me } from "@/lib/client/api";
 import type { PublicGameState, PlayerAction, TableConfig } from "@/lib/poker/types";
+import { evaluate, CATEGORY_NAMES_FA } from "@/lib/poker/evaluator";
+import type { Card } from "@/lib/poker/cards";
 
 type SeatVM = PublicGameState["seats"][number];
+
+/** Best current hand name from visible cards, once at least 5 are known. */
+function currentHandName(holeCards: Card[] | undefined, community: Card[]): string | null {
+  if (!holeCards || holeCards.length < 2) return null;
+  const all = [...holeCards, ...community];
+  if (all.length < 5) return null;
+  return CATEGORY_NAMES_FA[evaluate(all).category];
+}
 
 const PHASE_FA: Record<string, string> = {
   waiting: "در انتظار بازیکنان", preflop: "پیش‌فلاپ", flop: "فلاپ", turn: "ترن",
@@ -78,7 +88,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           return (
             <div key={i} style={{ position: "absolute", left: `${pos.x}%`, top: `${pos.y}%`, transform: "translate(-50%,-50%)", width: 96 }}>
               {occupied ? (
-                <SeatView seat={seat!} isTurn={isTurn} isButton={isButton} deadline={isTurn ? state?.actionDeadline : undefined} />
+                <SeatView seat={seat!} isTurn={isTurn} isButton={isButton} community={state?.community ?? []} deadline={isTurn ? state?.actionDeadline : undefined} />
               ) : (
                 <button className="btn btn-ghost" style={{ width: "100%", fontSize: 12, padding: "0.5rem" }}
                   onClick={() => mySeat ? null : setSitSeat(i)} disabled={!!mySeat}>
@@ -121,14 +131,25 @@ function seatPosition(index: number, viewerSeat: number | null, n: number) {
   return { x: 50 + 44 * Math.cos(theta), y: 50 + 43 * Math.sin(theta) };
 }
 
-function SeatView({ seat, isTurn, isButton, deadline }: {
-  seat: SeatVM; isTurn: boolean; isButton: boolean; deadline?: number;
+function SeatView({ seat, isTurn, isButton, community, deadline }: {
+  seat: SeatVM; isTurn: boolean; isButton: boolean; community: Card[]; deadline?: number;
 }) {
   const folded = seat.status === "folded";
+  // Show the current best hand for any cards we can actually see (the viewer's
+  // own during play, everyone's at showdown), from the flop onward.
+  const handName = !folded ? currentHandName(seat.holeCards, community) : null;
   return (
     <div style={{ textAlign: "center", opacity: folded ? 0.45 : 1 }}>
       {seat.betThisRound > 0 && (
         <div style={{ color: "var(--gold)", fontSize: 12, marginBottom: 2 }}>شرط: {seat.betThisRound.toLocaleString("fa")}</div>
+      )}
+      {handName && (
+        <div style={{
+          fontSize: 10, fontWeight: 700, color: "#0b3d2e", background: "var(--gold)",
+          borderRadius: 6, padding: "1px 6px", marginBottom: 3, display: "inline-block",
+        }}>
+          {handName}
+        </div>
       )}
       <div style={{ display: "flex", justifyContent: "center", gap: 3, marginBottom: 3, minHeight: 48 }}>
         {seat.holeCards?.length ? seat.holeCards.map((c, i) => <PlayingCard key={i} card={c} small />) :
