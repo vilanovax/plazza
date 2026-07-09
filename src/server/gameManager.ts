@@ -210,6 +210,14 @@ export class GameManager {
     await this.afterMutation(rt);
   }
 
+  /** Winner reveals their cards after a fold-win (within the show window). */
+  async showCards(tableId: string, userId: string): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) throw new InvalidActionError("میز فعال نیست");
+    rt.game.showCards(userId); // throws if not allowed / window passed
+    await this.broadcast(tableId);
+  }
+
   // --------------------------------------------------------------------------
   // Hand lifecycle
   // --------------------------------------------------------------------------

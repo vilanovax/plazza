@@ -55,6 +55,8 @@ export class HoldemGame {
   lastResult?: HandResult;
   lastAction?: GameState["lastAction"];
   actionDeadline?: number;
+  showOfferSeat?: number;
+  showOfferUntil?: number;
 
   private deck: ShuffledDeck | null = null;
 
@@ -158,6 +160,8 @@ export class HoldemGame {
     this.minRaise = this.config.bigBlind;
     this.lastResult = undefined;
     this.lastAction = undefined;
+    this.showOfferSeat = undefined;
+    this.showOfferUntil = undefined;
 
     // Reset every seat for the new hand.
     for (const seat of this.seats) {
@@ -490,12 +494,38 @@ export class HoldemGame {
       deckSeed: this.deck?.seed,
     };
 
+    // Won without a showdown (everyone folded): offer the winner a brief window
+    // to voluntarily reveal their cards.
+    if (!showdown) {
+      const winnerSeat = results[0]?.winners[0]?.seatIndex;
+      if (winnerSeat != null) {
+        this.showOfferSeat = winnerSeat;
+        this.showOfferUntil = Date.now() + 3000;
+      }
+    } else {
+      this.showOfferSeat = undefined;
+      this.showOfferUntil = undefined;
+    }
+
     // Now that the pot has been read and distributed, remove players who asked
     // to leave mid-hand (their committed chips have already been settled).
     for (const s of this.seats) {
       if (s.pendingLeave) this.seats[s.seatIndex] = emptySeat(s.seatIndex);
     }
     this.phase = "hand_complete";
+  }
+
+  /** Winner voluntarily reveals their hole cards during the show window. */
+  showCards(userId: string): void {
+    if (this.phase !== "hand_complete") throw new InvalidActionError("الان نمی‌توان کارت نشان داد");
+    if (this.showOfferSeat == null || !this.showOfferUntil) throw new InvalidActionError("امکان نمایش کارت نیست");
+    if (Date.now() > this.showOfferUntil) throw new InvalidActionError("زمان نمایش کارت گذشت");
+    const seat = this.seats[this.showOfferSeat];
+    if (!seat || seat.userId !== userId) throw new InvalidActionError("فقط برنده می‌تواند کارت نشان دهد");
+    if (this.lastResult && seat.holeCards?.length) {
+      this.lastResult.shownCards[seat.seatIndex] = [...seat.holeCards];
+    }
+    this.showOfferUntil = undefined; // one-shot: hide the offer once revealed
   }
 
   /** Layered side pots from every seat's total commitment this hand. */
@@ -599,6 +629,8 @@ export class HoldemGame {
       lastResult: this.lastResult,
       lastAction: this.lastAction,
       actionDeadline: this.actionDeadline,
+      showOfferSeat: this.showOfferSeat,
+      showOfferUntil: this.showOfferUntil,
       viewerSeat,
       seats: this.seats.map((s) => {
         const isViewer = s.userId != null && s.userId === viewerUserId;

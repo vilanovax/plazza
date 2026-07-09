@@ -12,6 +12,7 @@ export interface TableSocket {
   leaveSeat: () => void;
   act: (action: PlayerAction) => void;
   topup: (amount: number) => void;
+  showCards: () => void;
 }
 
 export function useTableSocket(tableId: string): TableSocket {
@@ -43,7 +44,8 @@ export function useTableSocket(tableId: string): TableSocket {
   const leaveSeat = useCallback(() => sockRef.current?.emit("leave_seat", { tableId }), [tableId]);
   const act = useCallback((action: PlayerAction) => sockRef.current?.emit("action", { tableId, action }), [tableId]);
   const topup = useCallback((amount: number) => sockRef.current?.emit("topup", { tableId, amount }), [tableId]);
+  const showCards = useCallback(() => sockRef.current?.emit("show_cards", { tableId }), [tableId]);
   const clearError = useCallback(() => setError(null), []);
 
-  return { state, connected, error, clearError, sit, leaveSeat, act, topup };
+  return { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards };
 }

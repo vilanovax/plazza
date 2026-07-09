@@ -107,6 +107,10 @@ export interface GameState {
   lastAction?: { seatIndex: number; type: ActionType; amount: number };
   /** Unix ms deadline for the current player's action. */
   actionDeadline?: number;
+  /** When a hand is won by everyone folding, the winner may reveal their
+   *  cards until this deadline. */
+  showOfferSeat?: number;
+  showOfferUntil?: number;
 }
 
 /** Sanitised state broadcast to a specific viewer (their own cards only). */

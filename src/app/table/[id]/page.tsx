@@ -32,7 +32,7 @@ const PHASE_FA: Record<string, string> = {
 export default function TablePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, connected, error, clearError, sit, leaveSeat, act, topup } = useTableSocket(id);
+  const { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards } = useTableSocket(id);
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [statsFor, setStatsFor] = useState<{ userId: string; name: string } | null>(null);
@@ -162,6 +162,11 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         })}
       </div>
 
+      {state && viewerSeat != null && state.phase === "hand_complete" &&
+        state.showOfferSeat === viewerSeat && state.showOfferUntil && (
+          <ShowCardsPrompt until={state.showOfferUntil} onShow={showCards} />
+        )}
+
       {error && (
         <div onClick={clearError} className="panel" style={{ padding: "0.6rem 1rem", marginBottom: 8, borderColor: "var(--danger)", color: "var(--danger)", cursor: "pointer" }}>
           {error} <span style={{ float: "left", opacity: 0.6 }}>✕</span>
@@ -264,6 +269,25 @@ function Countdown({ deadline }: { deadline: number }) {
   }, []);
   const left = now > 0 ? Math.max(0, Math.ceil((deadline - now) / 1000)) : null;
   return <div style={{ position: "absolute", top: -6, left: -6, background: "var(--gold)", color: "#2a1e00", borderRadius: 10, fontSize: 11, fontWeight: 800, padding: "1px 6px" }}>{left ?? "•"}</div>;
+}
+
+function ShowCardsPrompt({ until, onShow }: { until: number; onShow: () => void }) {
+  const [left, setLeft] = useState<number | null>(null);
+  useEffect(() => {
+    const update = () => setLeft(Math.max(0, Math.ceil((until - Date.now()) / 1000)));
+    const raf = requestAnimationFrame(update);
+    const t = setInterval(update, 300);
+    return () => { cancelAnimationFrame(raf); clearInterval(t); };
+  }, [until]);
+  if (left !== null && left <= 0) return null;
+  return (
+    <div className="panel" style={{ padding: 10, marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", borderColor: "var(--gold)" }}>
+      <span style={{ fontSize: 13, color: "var(--muted)" }}>می‌خواهی کارت‌هایت را نشان دهی؟</span>
+      <button className="btn btn-gold" style={{ fontSize: 13 }} onClick={onShow}>
+        نمایش کارت‌هایم{left !== null ? ` (${left.toLocaleString("fa")})` : ""}
+      </button>
+    </div>
+  );
 }
 
 function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreAction }: {

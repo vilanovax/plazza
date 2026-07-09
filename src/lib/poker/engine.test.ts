@@ -135,6 +135,20 @@ test("top-up rejects amounts outside the configured limits and non-finite", () =
   assert.equal(g.seats[0].stack, 1200);
 });
 
+test("fold-win offers the winner a show window; only the winner may reveal", () => {
+  const g = new HoldemGame("tS", cfg());
+  g.sit(0, "u0", "A", 1000);
+  g.sit(1, "u1", "B", 1000);
+  g.startHand(); // heads-up: seat0 = button/SB acts first preflop
+  g.act("u0", { type: "fold" }); // SB folds -> seat1 (BB) wins uncontested
+  assert.equal(g.phase, "hand_complete");
+  assert.equal(g.showOfferSeat, 1);
+  assert.ok((g.showOfferUntil ?? 0) > Date.now());
+  assert.throws(() => g.showCards("u0"), /برنده/); // non-winner can't show
+  g.showCards("u1");
+  assert.equal(g.lastResult?.shownCards[1]?.length, 2); // winner's cards revealed
+});
+
 test("rake is capped and skipped when no flop is seen", () => {
   const g = new HoldemGame("t5", cfg({ rakePercent: 10, rakeCap: 50, noFlopNoDrop: true }));
   g.sit(0, "u0", "A", 1000);
