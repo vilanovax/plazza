@@ -25,6 +25,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       config: t.config,
       prizePool: Number(t.prize_pool),
       currentLevel: t.current_level,
+      levelEndsAt: t.level_ends_at,
       tableId: t.table_id,
       entries: entries.map((e) => ({
         userId: e.user_id,

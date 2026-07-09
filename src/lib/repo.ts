@@ -618,6 +618,50 @@ export async function buyIntoTournament(
   });
 }
 
+/**
+ * Late registration into a *running* tournament: atomically verify the late-reg
+ * window + capacity, create an ACTIVE entry already holding the starting stack,
+ * debit the buy-in, and grow the prize pool. Returns false if the window is
+ * closed / full / already entered (caller then aborts without seating).
+ */
+export async function lateRegisterEntry(
+  tournamentId: string,
+  userId: string,
+  buyInChips: number,
+  startingStack: number,
+  lateRegThroughLevel: number
+): Promise<boolean> {
+  if (!Number.isFinite(buyInChips) || buyInChips <= 0) throw new Error("مبلغ ورودی تورنومنت نامعتبر است");
+  if (!Number.isFinite(startingStack) || startingStack <= 0) throw new Error("استک شروع نامعتبر است");
+  return tx(async (client) => {
+    const trow = await client.query<{ status: string; max_players: number; current_level: number }>(
+      "SELECT status, max_players, current_level FROM tournaments WHERE id = $1 FOR UPDATE",
+      [tournamentId]
+    );
+    if (trow.rowCount === 0) throw new Error("تورنومنت یافت نشد");
+    const t = trow.rows[0];
+    if (t.status !== "running") throw new Error("تورنومنت در حال اجرا نیست");
+    if (lateRegThroughLevel <= 0 || t.current_level > lateRegThroughLevel) {
+      throw new Error("مهلت ثبت‌نام با تأخیر به پایان رسیده است");
+    }
+    // Capacity is against players still in the field (registered/active).
+    const cnt = await client.query<{ n: string }>(
+      "SELECT COUNT(*)::int AS n FROM tournament_entries WHERE tournament_id = $1 AND status IN ('registered','active')",
+      [tournamentId]
+    );
+    if (Number(cnt.rows[0].n) >= t.max_players) throw new Error("ظرفیت تورنومنت تکمیل است");
+    const ins = await client.query(
+      `INSERT INTO tournament_entries (tournament_id, user_id, status, chips) VALUES ($1,$2,'active',$3)
+       ON CONFLICT (tournament_id, user_id) DO NOTHING RETURNING user_id`,
+      [tournamentId, userId, startingStack]
+    );
+    if (ins.rowCount === 0) throw new Error("قبلاً ثبت‌نام کرده‌اید");
+    await applyLedgerTx(client, { userId, type: "buy_in", amount: -buyInChips, note: "ثبت‌نام با تأخیر تورنومنت" });
+    await client.query("UPDATE tournaments SET prize_pool = prize_pool + $2 WHERE id = $1", [tournamentId, buyInChips]);
+    return true;
+  });
+}
+
 const ENTRY_COLUMNS = new Set(["chips", "place", "status"]);
 export async function setEntry(
   tournamentId: string,

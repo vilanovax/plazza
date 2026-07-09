@@ -6,6 +6,8 @@ export interface BlindLevel {
   bb: number;
   ante: number;
   minutes: number;
+  /** A scheduled break: play pauses, blinds are held (sb/bb/ante = 0 here). */
+  isBreak?: boolean;
 }
 
 export interface TournamentConfig {
@@ -17,6 +19,13 @@ export interface TournamentConfig {
   rebuyThroughLevel: number;
   /** Prize split percentages for the top N places (must sum to 100). */
   payouts: number[];
+  /** New players may still join a running tournament up to and including this
+   *  blind level (0 = no late registration). */
+  lateRegThroughLevel?: number;
+  /** Insert a break after every N blind levels (0 = no breaks). */
+  breakEveryLevels?: number;
+  /** Length of each break, in minutes. */
+  breakMinutes?: number;
 }
 
 /** Default prize splits by number of paid places. */
@@ -35,14 +44,29 @@ export function defaultPayouts(players: number): number[] {
   return [50, 30, 20];
 }
 
-/** Generate an escalating blind schedule. */
-export function defaultBlindSchedule(startBb = 20, levels = 15, minutes = 10): BlindLevel[] {
+/**
+ * Generate an escalating blind schedule. When breakEvery > 0, a break entry is
+ * inserted after every `breakEvery` play levels (never trailing). `level` is the
+ * 1-based position in the returned array, so it stays a valid index for the
+ * runtime's current_level pointer even with breaks interleaved.
+ */
+export function defaultBlindSchedule(
+  startBb = 20,
+  levels = 15,
+  minutes = 10,
+  breakEvery = 0,
+  breakMinutes = 5
+): BlindLevel[] {
   const schedule: BlindLevel[] = [];
   let bb = startBb;
-  for (let level = 1; level <= levels; level++) {
-    schedule.push({ level, sb: Math.max(1, Math.floor(bb / 2)), bb, ante: level >= 4 ? Math.floor(bb / 8) : 0, minutes });
+  let pos = 0;
+  for (let play = 1; play <= levels; play++) {
+    schedule.push({ level: ++pos, sb: Math.max(1, Math.floor(bb / 2)), bb, ante: play >= 4 ? Math.floor(bb / 8) : 0, minutes });
     // Roughly 1.5x each level, rounded to a "nice" number.
     bb = niceRound(bb * 1.5);
+    if (breakEvery > 0 && play % breakEvery === 0 && play < levels) {
+      schedule.push({ level: ++pos, sb: 0, bb: 0, ante: 0, minutes: breakMinutes, isBreak: true });
+    }
   }
   return schedule;
 }

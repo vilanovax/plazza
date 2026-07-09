@@ -23,6 +23,7 @@ export class TournamentManager {
   private tableToTournament = new Map<string, string>();
   private processing = new Set<string>();
   private rebuying = new Set<string>();
+  private lateRegistering = new Set<string>();
 
   init(): void {
     // Route table hand-end events to the owning tournament (if any).
@@ -128,7 +129,15 @@ export class TournamentManager {
       current_level: next,
       level_ends_at: new Date(Date.now() + level.minutes * 60_000).toISOString(),
     });
-    await gameManager.setBlinds(t.table_id, level.sb, level.bb, level.ante);
+    if (level.isBreak) {
+      // Scheduled break: hold the blinds, pause new hands, and let the level
+      // timer advance us to the next play level after `minutes`.
+      gameManager.setPaused(t.table_id, true);
+      gameManager.logMessage(t.table_id, `استراحت — ${level.minutes.toLocaleString("fa")} دقیقه`);
+    } else {
+      gameManager.setPaused(t.table_id, false); // resume if we were on a break
+      await gameManager.setBlinds(t.table_id, level.sb, level.bb, level.ante);
+    }
 
     // If the rebuy period just closed, remove anyone still busted — but only if
     // no hand is live. Mid-hand an all-in player has stack 0 yet is still
@@ -191,6 +200,43 @@ export class TournamentManager {
       gameManager.startTable(t.table_id);
     } finally {
       this.rebuying.delete(key);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Late registration — join a running tournament within the late-reg window
+  // --------------------------------------------------------------------------
+  /** True if a running tournament is still inside its late-registration window. */
+  lateRegOpen(t: TournamentRow): boolean {
+    const through = t.config.lateRegThroughLevel ?? 0;
+    return t.status === "running" && through > 0 && t.current_level <= through;
+  }
+
+  async lateRegister(tournamentId: string, userId: string): Promise<void> {
+    // Serialise per tournament: seat allocation reads the live table then seats
+    // after a DB round-trip, so concurrent late-regs must not pick the same seat.
+    if (this.lateRegistering.has(tournamentId)) throw new InvalidActionError("ثبت‌نام با تأخیر در حال پردازش است");
+    this.lateRegistering.add(tournamentId);
+    try {
+      const t = await repo.getTournament(tournamentId);
+      if (!t || !t.table_id) throw new InvalidActionError("تورنومنت در حال اجرا نیست");
+      if (!this.lateRegOpen(t)) throw new InvalidActionError("مهلت ثبت‌نام با تأخیر به پایان رسیده است");
+      const user = await repo.getUserById(userId);
+      if (!user) throw new InvalidActionError("کاربر یافت نشد");
+
+      const rt = await gameManager.ensureLoaded(t.table_id);
+      const empty = rt.game.seats.find((s) => s.status === "empty");
+      if (!empty) throw new InvalidActionError("ظرفیت میز تکمیل است");
+
+      const startingStack = Number(t.starting_stack);
+      // Atomic: debit + create the ACTIVE entry + grow the pool (throws on
+      // insufficient funds / closed window / full / duplicate → nothing seated).
+      await repo.lateRegisterEntry(tournamentId, userId, Number(t.buy_in_chips), startingStack, t.config.lateRegThroughLevel ?? 0);
+      await gameManager.seatTournamentPlayer(t.table_id, empty.seatIndex, userId, user.display_name, startingStack);
+      gameManager.logMessage(t.table_id, `${user.display_name} با ثبت‌نام با تأخیر وارد شد`);
+      gameManager.startTable(t.table_id);
+    } finally {
+      this.lateRegistering.delete(tournamentId);
     }
   }
 

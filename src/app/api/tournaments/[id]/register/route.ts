@@ -1,5 +1,6 @@
 import { handler, error, json, requireSession } from "@/lib/api";
 import * as repo from "@/lib/repo";
+import { tournamentManager } from "@/server/tournamentManager";
 
 /** Parse a BIGINT-ish value (string | number | bigint) to BigInt, or null if invalid. */
 function toBigInt(v: unknown): bigint | null {
@@ -19,11 +20,14 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     const { id } = await params;
     const t = await repo.getTournament(id);
     if (!t) return error("تورنومنت یافت نشد", 404);
-    if (t.status !== "scheduled") return error("ثبت‌نام این تورنومنت بسته است");
+    // Open either to a scheduled tournament, or to a running one still inside its
+    // late-registration window.
+    const late = t.status === "running" && tournamentManager.lateRegOpen(t);
+    if (t.status !== "scheduled" && !late) return error("ثبت‌نام این تورنومنت بسته است");
 
     const entries = await repo.listEntries(id);
     if (entries.some((e) => e.user_id === session.sub)) return error("قبلاً ثبت‌نام کرده‌اید", 409);
-    if (entries.length >= t.max_players) return error("ظرفیت تورنومنت تکمیل است");
+    if (!late && entries.length >= t.max_players) return error("ظرفیت تورنومنت تکمیل است");
 
     const user = await repo.getUserById(session.sub);
     // chip_balance / buy_in_chips are BIGINT (pg returns them as strings).
@@ -35,7 +39,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       return error("موجودی ژتون برای ثبت‌نام کافی نیست");
     }
 
-    await repo.buyIntoTournament(id, session.sub, Number(t.buy_in_chips), false);
+    if (late) {
+      await tournamentManager.lateRegister(id, session.sub);
+    } else {
+      await repo.buyIntoTournament(id, session.sub, Number(t.buy_in_chips), false);
+    }
     return json({ ok: true });
   });
 }

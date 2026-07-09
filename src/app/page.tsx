@@ -103,7 +103,7 @@ export default function LobbyPage() {
 
 interface TournamentSummary {
   id: string; name: string; status: string; buyInChips: number; startingStack: number;
-  maxPlayers: number; registered: number; prizePool: number; payouts: number[];
+  maxPlayers: number; registered: number; prizePool: number; payouts: number[]; lateRegOpen?: boolean;
 }
 
 function TournamentsSection({ isAdmin, onBalanceChange }: { isAdmin: boolean; onBalanceChange: () => void }) {
@@ -143,6 +143,7 @@ function TournamentsSection({ isAdmin, onBalanceChange }: { isAdmin: boolean; on
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {t.status === "scheduled" && <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>ثبت‌نام</button>}
+              {t.status === "running" && t.lateRegOpen && <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>ثبت‌نام با تأخیر</button>}
               {t.status === "scheduled" && isAdmin && <button className="btn btn-gold" style={{ fontSize: 12 }} onClick={() => start(t.id)}>شروع</button>}
               {t.status === "running" && <Link href={`/tournament/${t.id}`} className="btn btn-ghost" style={{ fontSize: 12 }}>مشاهده</Link>}
             </div>
@@ -158,6 +159,7 @@ function CreateTournament({ onDone }: { onDone: () => void }) {
     name: "تورنومنت جدید", buyInChips: 1000, startingStack: 1500, maxPlayers: 6,
     startBigBlind: 20, levelMinutes: 10, levels: 15,
     rebuyAllowed: true, rebuyMaxCount: -1, rebuyThroughLevel: 4, payoutPreset: "",
+    lateRegThroughLevel: 0, breakEveryLevels: 0, breakMinutes: 5,
   });
   const [err, setErr] = useState("");
   async function create() {
@@ -185,6 +187,9 @@ function CreateTournament({ onDone }: { onDone: () => void }) {
         {num("تعداد سطوح", "levels")}
         {num("حداکثر ری‌بای (۱-=نامحدود)", "rebuyMaxCount")}
         {num("ری‌بای تا سطح", "rebuyThroughLevel")}
+        {num("ثبت‌نام با تأخیر تا سطح (۰=خاموش)", "lateRegThroughLevel")}
+        {num("استراحت هر چند سطح (۰=خاموش)", "breakEveryLevels")}
+        {num("دقیقهٔ استراحت", "breakMinutes")}
         <label style={{ fontSize: 12, color: "var(--muted)" }}>تقسیم جایزه
           <select value={f.payoutPreset} onChange={(e) => setF({ ...f, payoutPreset: e.target.value })} style={miniInput}>
             <option value="">پیش‌فرض (بر اساس تعداد)</option>

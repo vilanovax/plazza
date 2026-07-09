@@ -1,5 +1,6 @@
 import { handler, json, requireSession } from "@/lib/api";
 import * as repo from "@/lib/repo";
+import { tournamentManager } from "@/server/tournamentManager";
 
 // Live tournament summary for the table view (null if the table isn't one).
 export async function GET(_req: Request, { params }: { params: Promise<{ tableId: string }> }) {
@@ -34,6 +35,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ tableId
         playersLeft: active.length,
         totalPlayers: entries.length,
         levelEndsAt: t.level_ends_at,
+        onBreak: level?.isBreak === true,
+        lateRegOpen: tournamentManager.lateRegOpen(t),
         payouts: t.config.payouts,
         buyInChips: Number(t.buy_in_chips),
         canRebuy,

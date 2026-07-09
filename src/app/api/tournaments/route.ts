@@ -22,6 +22,12 @@ export async function GET() {
       registered: t.registered,
       prizePool: Number(t.prize_pool),
       payouts: t.config.payouts,
+      // Late registration still open? Lets the lobby show a join button for a
+      // running tournament inside its window.
+      lateRegOpen:
+        t.status === "running" &&
+        (t.config.lateRegThroughLevel ?? 0) > 0 &&
+        t.current_level <= (t.config.lateRegThroughLevel ?? 0),
     }));
     return json({ tournaments: withCounts });
   });
@@ -66,13 +72,22 @@ export async function POST(req: Request) {
 
     const rebuyMaxCount = num(b.rebuyMaxCount, -1);
     const rebuyThroughLevel = num(b.rebuyThroughLevel, 4);
+    const lateRegThroughLevel = num(b.lateRegThroughLevel, 0);
+    const breakEveryLevels = num(b.breakEveryLevels, 0);
+    const breakMinutes = num(b.breakMinutes, 5);
     if (rebuyMaxCount === null || rebuyThroughLevel === null) return error("مقادیر ری‌بای نامعتبر است");
+    if (lateRegThroughLevel === null || breakEveryLevels === null || breakMinutes === null) {
+      return error("مقادیر ثبت‌نام با تأخیر/استراحت نامعتبر است");
+    }
 
     const config: TournamentConfig = {
       rebuyAllowed: b.rebuyAllowed === true || b.rebuyAllowed == null,
       rebuyMaxCount: Math.max(-1, Math.floor(rebuyMaxCount)),
       rebuyThroughLevel: Math.max(0, Math.floor(rebuyThroughLevel)),
       payouts,
+      lateRegThroughLevel: Math.min(levels, Math.max(0, Math.floor(lateRegThroughLevel))),
+      breakEveryLevels: Math.max(0, Math.floor(breakEveryLevels)),
+      breakMinutes: Math.min(60, Math.max(1, Math.floor(breakMinutes))),
     };
 
     const t = await repo.createTournament({
@@ -80,7 +95,7 @@ export async function POST(req: Request) {
       buyInChips,
       startingStack,
       maxPlayers,
-      blindSchedule: defaultBlindSchedule(startBb, levels, levelMinutes),
+      blindSchedule: defaultBlindSchedule(startBb, levels, levelMinutes, config.breakEveryLevels, config.breakMinutes),
       config,
       createdBy: session.sub,
     });

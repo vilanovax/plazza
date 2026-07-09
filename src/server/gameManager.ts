@@ -37,6 +37,8 @@ interface TableRuntime {
   sitOutTimers: Map<string, NodeJS.Timeout>;
   /** True when this table backs a tournament (disables voluntary sit-out). */
   isTournament: boolean;
+  /** When true, no new hands are dealt (e.g. a scheduled tournament break). */
+  paused?: boolean;
 }
 
 const LOG_CAP = 60;
@@ -358,9 +360,22 @@ export class GameManager {
   // Hand lifecycle
   // --------------------------------------------------------------------------
   private maybeStartHand(rt: TableRuntime): void {
+    if (rt.paused) return; // e.g. a scheduled tournament break — no new hands
     if (rt.nextHandTimer || rt.actionTimer) return;
     if (rt.game.canStartHand()) {
       rt.nextHandTimer = setTimeout(() => this.startHand(rt), NEXT_HAND_DELAY_MS);
+    }
+  }
+
+  /** Pause/resume dealing new hands (scheduled tournament breaks). The current
+   *  hand, if any, finishes normally; only the *next* hand is gated. */
+  setPaused(tableId: string, paused: boolean): void {
+    const rt = this.tables.get(tableId);
+    if (!rt) return;
+    rt.paused = paused;
+    if (!paused) {
+      this.maybeStartHand(rt);
+      void this.broadcast(tableId);
     }
   }
 

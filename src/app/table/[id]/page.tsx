@@ -15,6 +15,7 @@ const BETTING_PHASES = new Set(["preflop", "flop", "turn", "river"]);
 interface TournamentBanner {
   id: string; level: number; sb: number; bb: number; ante: number;
   prizePool: number; playersLeft: number; buyInChips: number; canRebuy: boolean;
+  onBreak?: boolean; lateRegOpen?: boolean;
 }
 import { evaluate, CATEGORY_NAMES_FA } from "@/lib/poker/evaluator";
 import type { Card } from "@/lib/poker/cards";
@@ -125,7 +126,10 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
 
       {tourney && (
         <div className="panel" style={{ padding: "6px 12px", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: "var(--gold)", fontSize: 12 }}>
-          <span>🏆 سطح {tourney.level.toLocaleString("fa")} · بلایند {tourney.sb.toLocaleString("fa")}/{tourney.bb.toLocaleString("fa")}{tourney.ante ? ` (آنته ${tourney.ante.toLocaleString("fa")})` : ""}</span>
+          <span>
+            {tourney.onBreak ? "☕ استراحت" : `🏆 سطح ${tourney.level.toLocaleString("fa")} · بلایند ${tourney.sb.toLocaleString("fa")}/${tourney.bb.toLocaleString("fa")}${tourney.ante ? ` (آنته ${tourney.ante.toLocaleString("fa")})` : ""}`}
+            {tourney.lateRegOpen && !tourney.onBreak ? " · 🕒 ثبت‌نام باز" : ""}
+          </span>
           <span style={{ color: "var(--gold)" }}>جایزه {tourney.prizePool.toLocaleString("fa")} · {tourney.playersLeft.toLocaleString("fa")} نفر</span>
         </div>
       )}
