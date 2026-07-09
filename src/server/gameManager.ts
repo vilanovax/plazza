@@ -279,40 +279,36 @@ export class GameManager {
 
   private async onHandEnd(rt: TableRuntime): Promise<void> {
     const g = rt.game;
-    // Persist hand result + final stacks.
-    if (rt.currentHandId && g.lastResult) {
-      try {
-        await repo.finishHand(
-          rt.currentHandId,
-          g.community.map(cardToString),
-          g.pot,
-          g.lastResult.rake,
-          g.lastResult.deckSeed,
-          g.lastResult
-        );
-      } catch (err) {
-        console.error("finishHand failed", err);
-      }
-    }
-    // Record per-player participation + result for this hand (stats).
-    if (rt.currentHandId && rt.handParticipants?.length && g.lastResult) {
+    // Capture + clear immediately so this is at-most-once per hand even if
+    // another path (e.g. leave) re-enters afterMutation while we await I/O.
+    const handId = rt.currentHandId;
+    const participants = rt.handParticipants;
+    rt.currentHandId = undefined;
+    rt.handParticipants = undefined;
+
+    // Persist the hand result + per-player stats together (one transaction).
+    if (handId && g.lastResult) {
       const result = g.lastResult;
-      const rows = rt.handParticipants.map((p) => {
+      const rows = (participants ?? []).map((p) => {
         const winnings = result.pots.reduce(
           (sum, pot) => sum + pot.winners.filter((w) => w.seatIndex === p.seatIndex).reduce((a, w) => a + w.amount, 0),
           0
         );
         const seat = g.seats[p.seatIndex];
         const committed = seat && seat.userId === p.userId ? seat.committedThisHand : 0;
-        return { seatIndex: p.seatIndex, userId: p.userId, won: winnings > 0, net: winnings - committed };
+        const net = winnings - committed;
+        // "Won" = actually profitable this hand (net > 0), correct for split/side pots.
+        return { seatIndex: p.seatIndex, userId: p.userId, won: net > 0, net };
       });
       try {
-        await repo.insertHandPlayers(rt.currentHandId, rt.tableId, rows);
+        await tx(async (client) => {
+          await repo.finishHandTx(client, handId, g.community.map(cardToString), g.pot, result.rake, result.deckSeed, result);
+          await repo.insertHandPlayersTx(client, handId, rt.tableId, rows);
+        });
       } catch (err) {
-        console.error("insertHandPlayers failed", err);
+        console.error("persist hand failed", err);
       }
     }
-    rt.handParticipants = undefined;
 
     // Sync each occupied seat's stack to the DB (survives restart).
     for (const s of g.seats) {

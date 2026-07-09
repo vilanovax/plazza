@@ -168,7 +168,14 @@ function SeatView({ seat, isTurn, isButton, community, deadline, onSelect }: {
   // own during play, everyone's at showdown), from the flop onward.
   const handName = !folded ? currentHandName(seat.holeCards, community) : null;
   return (
-    <div onClick={onSelect} style={{ textAlign: "center", opacity: folded ? 0.45 : 1, cursor: onSelect ? "pointer" : "default" }}>
+    <div
+      onClick={onSelect}
+      onKeyDown={(e) => { if (onSelect && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onSelect(); } }}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      aria-label={onSelect ? `آمار ${seat.name ?? "بازیکن"}` : undefined}
+      style={{ textAlign: "center", opacity: folded ? 0.45 : 1, cursor: onSelect ? "pointer" : "default" }}
+    >
       {seat.betThisRound > 0 && (
         <div style={{ color: "var(--gold)", fontSize: 12, marginBottom: 2 }}>شرط: {seat.betThisRound.toLocaleString("fa")}</div>
       )}
@@ -314,7 +321,7 @@ function PlayerStatsModal({ tableId, userId, name, onClose }: {
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "center", zIndex: 60, padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} className="panel" style={{ padding: 20, width: "100%", maxWidth: 340 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <h3 style={{ margin: 0 }}>📊 آمار {name}</h3>
+          <h3 style={{ margin: 0 }}>📊 آمار {stats?.displayName ?? name}</h3>
           <button onClick={onClose} className="btn btn-ghost" style={{ padding: "0.2rem 0.5rem" }}>✕</button>
         </div>
         <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>آمار این بازیکن در این میز</div>

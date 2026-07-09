@@ -322,7 +322,22 @@ export async function insertHand(
   return row!.id;
 }
 
-export async function finishHand(
+const FINISH_HAND_SQL = `UPDATE hands SET community = $2, pot = $3, rake = $4, deck_seed = $5, result = $6, ended_at = now()
+     WHERE id = $1`;
+
+function finishHandParams(
+  handId: string,
+  community: string[],
+  pot: number,
+  rake: number,
+  deckSeed: string | undefined,
+  result: unknown
+): unknown[] {
+  return [handId, community, pot, rake, deckSeed ?? null, JSON.stringify(result)];
+}
+
+export async function finishHandTx(
+  client: PoolClient,
   handId: string,
   community: string[],
   pot: number,
@@ -330,11 +345,7 @@ export async function finishHand(
   deckSeed: string | undefined,
   result: unknown
 ): Promise<void> {
-  await query(
-    `UPDATE hands SET community = $2, pot = $3, rake = $4, deck_seed = $5, result = $6, ended_at = now()
-     WHERE id = $1`,
-    [handId, community, pot, rake, deckSeed ?? null, JSON.stringify(result)]
-  );
+  await client.query(FINISH_HAND_SQL, finishHandParams(handId, community, pot, rake, deckSeed, result));
 }
 
 export interface HandPlayerRow {
@@ -344,13 +355,7 @@ export interface HandPlayerRow {
   net: number;
 }
 
-/** Record every dealt-in player of a finished hand (for stats). */
-export async function insertHandPlayers(
-  handId: string,
-  tableId: string,
-  rows: HandPlayerRow[]
-): Promise<void> {
-  if (rows.length === 0) return;
+function handPlayersInsert(handId: string, tableId: string, rows: HandPlayerRow[]): { text: string; values: unknown[] } {
   const values: unknown[] = [];
   const tuples = rows.map((r, i) => {
     const b = i * 4;
@@ -358,12 +363,24 @@ export async function insertHandPlayers(
     return `($${b + 1}, $${b + 2}, $${b + 3}, $${b + 4}, $${rows.length * 4 + i * 2 + 1}, $${rows.length * 4 + i * 2 + 2})`;
   });
   for (const r of rows) values.push(r.won, r.net);
-  await query(
-    `INSERT INTO hand_players (hand_id, table_id, user_id, seat_index, won, net)
+  return {
+    text: `INSERT INTO hand_players (hand_id, table_id, user_id, seat_index, won, net)
      VALUES ${tuples.join(", ")}
      ON CONFLICT (hand_id, seat_index) DO NOTHING`,
-    values
-  );
+    values,
+  };
+}
+
+/** Record every dealt-in player of a finished hand (for stats). */
+export async function insertHandPlayersTx(
+  client: PoolClient,
+  handId: string,
+  tableId: string,
+  rows: HandPlayerRow[]
+): Promise<void> {
+  if (rows.length === 0) return;
+  const { text, values } = handPlayersInsert(handId, tableId, rows);
+  await client.query(text, values);
 }
 
 export interface PlayerTableStats {
