@@ -674,14 +674,15 @@ export async function lateRegisterEntry(
   userId: string,
   buyInChips: number,
   startingStack: number,
-  lateRegThroughLevel: number,
-  blindSchedule: BlindLevel[]
+  lateRegThroughLevel: number
 ): Promise<boolean> {
   if (!Number.isFinite(buyInChips) || buyInChips <= 0) throw new Error("مبلغ ورودی تورنومنت نامعتبر است");
   if (!Number.isFinite(startingStack) || startingStack <= 0) throw new Error("استک شروع نامعتبر است");
   return tx(async (client) => {
-    const trow = await client.query<{ status: string; max_players: number; current_level: number }>(
-      "SELECT status, max_players, current_level FROM tournaments WHERE id = $1 FOR UPDATE",
+    // Read status, level AND the schedule under one FOR UPDATE lock so the
+    // window is computed from a consistent, just-locked row (not a caller arg).
+    const trow = await client.query<{ status: string; max_players: number; current_level: number; blind_schedule: BlindLevel[] }>(
+      "SELECT status, max_players, current_level, blind_schedule FROM tournaments WHERE id = $1 FOR UPDATE",
       [tournamentId]
     );
     if (trow.rowCount === 0) throw new Error("تورنومنت یافت نشد");
@@ -689,7 +690,7 @@ export async function lateRegisterEntry(
     if (t.status !== "running") throw new Error("تورنومنت در حال اجرا نیست");
     // Compare in playable levels (breaks don't count) against the just-locked
     // current_level, so the window can't close early nor be raced.
-    const playable = playableLevel(blindSchedule, t.current_level);
+    const playable = playableLevel(t.blind_schedule, t.current_level);
     if (lateRegThroughLevel <= 0 || playable > lateRegThroughLevel) {
       throw new Error("مهلت ثبت‌نام با تأخیر به پایان رسیده است");
     }

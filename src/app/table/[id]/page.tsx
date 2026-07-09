@@ -1,5 +1,5 @@
 "use client";
-import { use, useCallback, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTableSocket } from "@/components/useTableSocket";
@@ -19,6 +19,7 @@ interface TournamentBanner {
 }
 import { evaluate, CATEGORY_NAMES_FA } from "@/lib/poker/evaluator";
 import { stringToCard, type Card } from "@/lib/poker/cards";
+import { QUICK_CHAT } from "@/lib/profile/presets";
 
 type SeatVM = PublicGameState["seats"][number];
 
@@ -38,13 +39,21 @@ const PHASE_FA: Record<string, string> = {
 export default function TablePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy } = useTableSocket(id);
+  const { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, chat } = useTableSocket(id);
   const [me, setMe] = useState<Me | null>(null);
   const [tourney, setTourney] = useState<TournamentBanner | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [statsFor, setStatsFor] = useState<{ userId: string; name: string; seatIndex: number } | null>(null);
   // Pre-selected action to auto-run when it becomes the player's turn.
   const [preAction, setPreAction] = useState<{ type: PreAction; handNo: number } | null>(null);
+  // Chat mute prefs (client-side): a set of muted user ids + a mute-everyone flag.
+  const [mutedUsers, setMutedUsers] = useState<Set<string>>(new Set());
+  const [muteAll, setMuteAll] = useState(false);
+  const toggleMuteUser = useCallback((uid: string) => setMutedUsers((prev) => {
+    const next = new Set(prev);
+    if (next.has(uid)) next.delete(uid); else next.add(uid);
+    return next;
+  }), []);
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
 
@@ -230,7 +239,18 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         </div>
       )}
 
-      {state?.log && state.log.length > 0 && <EventLog log={state.log} />}
+      {state && <AllInFlash log={state.log ?? []} />}
+      {state && (
+        <ChatPanel
+          log={state.log ?? []}
+          myId={me?.id ?? null}
+          muteAll={muteAll}
+          mutedUsers={mutedUsers}
+          onToggleMuteAll={() => setMuteAll((m) => !m)}
+          onToggleMuteUser={toggleMuteUser}
+          onSend={(text) => chat(text)}
+        />
+      )}
 
       {sitSeat != null && state && me && (
         <SitDialog seat={sitSeat} config={state.config} balance={me.chipBalance}
@@ -321,16 +341,111 @@ function Countdown({ deadline }: { deadline: number }) {
   return <div style={{ position: "absolute", top: -6, left: -6, background: "var(--gold)", color: "#2a1e00", borderRadius: 10, fontSize: 11, fontWeight: 800, padding: "1px 6px" }}>{left ?? "•"}</div>;
 }
 
-function EventLog({ log }: { log: LogEntry[] }) {
-  const recent = log.slice(-6);
+function ChatPanel({ log, myId, muteAll, mutedUsers, onToggleMuteAll, onToggleMuteUser, onSend }: {
+  log: LogEntry[];
+  myId: string | null;
+  muteAll: boolean;
+  mutedUsers: Set<string>;
+  onToggleMuteAll: () => void;
+  onToggleMuteUser: (uid: string) => void;
+  onSend: (text: string) => void;
+}) {
+  const [text, setText] = useState("");
+  const [showPresets, setShowPresets] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Hide muted players' chat/all-in lines; table events always show.
+  const visible = log.filter((e) => {
+    if (e.kind !== "chat" && e.kind !== "allin") return true;
+    const uid = e.author?.userId;
+    if (!uid || uid === myId) return true;
+    if (muteAll) return false;
+    return !mutedUsers.has(uid);
+  });
+  const recent = visible.slice(-40);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [recent.length]);
+
+  function send(t: string) {
+    const msg = t.trim();
+    if (!msg) return;
+    onSend(msg);
+    setText("");
+    setShowPresets(false);
+  }
+
   return (
-    <div className="panel" style={{ padding: "6px 10px", marginTop: 8, maxHeight: 96, overflowY: "auto", fontSize: 12, color: "var(--muted)" }}>
-      {recent.map((e) => (
-        <div key={e.id} style={{ padding: "2px 0", lineHeight: 1.5 }}>
-          <span style={{ opacity: 0.55 }}>{new Date(e.ts).toLocaleTimeString("fa", { hour: "2-digit", minute: "2-digit" })}</span>
-          {" — "}{e.text}
+    <div className="panel" style={{ marginTop: 8, padding: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+        <span style={{ fontSize: 12, color: "var(--muted)" }}>گفتگو و رویدادها</span>
+        <button onClick={onToggleMuteAll} className="btn btn-ghost" style={{ fontSize: 11, padding: "0.1rem 0.5rem" }}>
+          {muteAll ? "🔕 صدای همه بسته" : "🔔 صدای چت باز"}
+        </button>
+      </div>
+      <div ref={scrollRef} style={{ maxHeight: 130, overflowY: "auto", fontSize: 12 }}>
+        {recent.map((e) => {
+          const mine = e.author?.userId && e.author.userId === myId;
+          if (e.kind === "chat") {
+            return (
+              <div key={e.id} style={{ padding: "2px 0", lineHeight: 1.5, color: "var(--text)" }}>
+                <b style={{ color: mine ? "var(--gold)" : "var(--accent)" }}>{e.author?.name ?? "?"}:</b> {e.text}
+                {!mine && e.author?.userId && (
+                  <button onClick={() => onToggleMuteUser(e.author!.userId)} title="میوت این بازیکن"
+                    style={{ marginInlineStart: 6, fontSize: 10, background: "none", border: "none", cursor: "pointer", color: mutedUsers.has(e.author.userId) ? "var(--danger,#e33)" : "var(--muted)" }}>
+                    {mutedUsers.has(e.author.userId) ? "🔇" : "🔈"}
+                  </button>
+                )}
+              </div>
+            );
+          }
+          if (e.kind === "allin") {
+            return <div key={e.id} style={{ padding: "2px 0", fontWeight: 800, color: "var(--danger,#e33)" }}>⚡ {e.text}</div>;
+          }
+          return (
+            <div key={e.id} style={{ padding: "2px 0", lineHeight: 1.5, color: "var(--muted)" }}>
+              <span style={{ opacity: 0.55 }}>{new Date(e.ts).toLocaleTimeString("fa", { hour: "2-digit", minute: "2-digit" })}</span>
+              {" — "}{e.text}
+            </div>
+          );
+        })}
+      </div>
+      {showPresets && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, margin: "6px 0" }}>
+          {QUICK_CHAT.map((q) => (
+            <button key={q} onClick={() => send(q)} className="btn btn-ghost" style={{ fontSize: 11, padding: "0.15rem 0.5rem" }}>{q}</button>
+          ))}
         </div>
-      ))}
+      )}
+      <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
+        <button onClick={() => setShowPresets((s) => !s)} className="btn btn-ghost" style={{ padding: "0.3rem 0.5rem" }} title="جملات آماده">💬</button>
+        <input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") send(text); }}
+          maxLength={200}
+          placeholder="پیام…"
+          style={{ flex: 1, padding: "0.35rem 0.6rem", borderRadius: 8, border: "1px solid var(--border,#3335)", background: "var(--panel,#1b1b1f)", color: "inherit", fontSize: 13 }}
+        />
+        <button onClick={() => send(text)} className="btn btn-primary" style={{ padding: "0.3rem 0.7rem" }}>ارسال</button>
+      </div>
+    </div>
+  );
+}
+
+/** Brief full-width flash whenever a new all-in is announced in the feed.
+ *  Keyed by the entry id so the CSS animation replays only on a NEW all-in
+ *  (React remounts on key change) — no timers or state, so it's lint-clean. */
+function AllInFlash({ log }: { log: LogEntry[] }) {
+  const lastAllIn = [...log].reverse().find((e) => e.kind === "allin");
+  if (!lastAllIn) return null;
+  return (
+    <div key={lastAllIn.id} style={{ position: "fixed", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none", zIndex: 80, animation: "allinflash 1.6s ease-out forwards" }}>
+      <style>{"@keyframes allinflash{0%{opacity:0;transform:scale(.7)}15%{opacity:1;transform:scale(1.05)}70%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1)}}"}</style>
+      <div style={{ fontSize: 40, fontWeight: 900, color: "#fff", textShadow: "0 0 24px #e33, 0 0 8px #e33", background: "rgba(180,20,40,.35)", padding: "14px 36px", borderRadius: 16 }}>
+        ⚡ {lastAllIn.author?.name ?? ""} — آل‌این! 🔥
+      </div>
     </div>
   );
 }

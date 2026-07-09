@@ -245,8 +245,7 @@ export class TournamentManager {
           userId,
           Number(t.buy_in_chips),
           startingStack,
-          t.config.lateRegThroughLevel ?? 0,
-          t.blind_schedule
+          t.config.lateRegThroughLevel ?? 0
         );
       } catch (err) {
         await gameManager.removeTournamentPlayer(t.table_id, userId, `${user.display_name} — ثبت‌نام ناموفق`).catch(() => {});

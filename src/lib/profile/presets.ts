@@ -29,6 +29,20 @@ export const EMOTES = [
   "🍀", "🤯", "👏", "🙈", "🃏", "💰", "🧊", "🧠",
 ] as const;
 
+/** Ready-made quick-chat phrases players can send with one tap. */
+export const QUICK_CHAT = [
+  "سلام!",
+  "خوش‌شانسی!",
+  "دست خوب بود 👏",
+  "بلوف بود؟ 😏",
+  "کال می‌کنم",
+  "فولد!",
+  "آل‌این! 🔥",
+  "عجله نکن ⏳",
+  "خداحافظ 👋",
+  "دوباره بازی؟",
+] as const;
+
 export const TAGLINE_MAX = 60;
 export const TITLE_MAX = 30;
 export const MAX_FAVORITE_CARDS = 2;

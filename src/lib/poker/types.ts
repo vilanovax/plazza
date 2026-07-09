@@ -12,6 +12,10 @@ export interface LogEntry {
   id: number;
   ts: number;
   text: string;
+  /** "event" = table event (default), "chat" = player message, "allin" = all-in shout. */
+  kind?: "event" | "chat" | "allin";
+  /** Present for chat/all-in entries so the client can attribute + mute by user. */
+  author?: { userId: string; name: string };
 }
 
 export interface PlayerAction {

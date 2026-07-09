@@ -124,6 +124,16 @@ class SoundManager {
     this.tone(1040, 0.05, "square", 0.14);
   }
 
+  /** All-in: a dramatic rising sweep + low boom so it stands out from a normal bet. */
+  allin(): void {
+    // rising tension
+    this.tone(300, 0.16, "sawtooth", 0.16);
+    this.tone(500, 0.16, "sawtooth", 0.16, 0.12);
+    this.tone(760, 0.22, "square", 0.18, 0.24);
+    // low boom to punctuate
+    this.tone(90, 0.4, "sine", 0.3, 0.28);
+  }
+
   /** You won the hand: a three-note fanfare with a burst of applause. */
   win(): void {
     this.tone(523, 0.12, "sine", 0.22);

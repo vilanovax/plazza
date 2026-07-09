@@ -10,6 +10,7 @@ import type { PlayerAction } from "../lib/poker/types";
 import { gameManager } from "./gameManager";
 import { tournamentManager } from "./tournamentManager";
 import * as repo from "../lib/repo";
+import { rateLimit } from "../lib/rateLimit";
 
 interface SocketData {
   userId: string;
@@ -145,6 +146,18 @@ export function registerSocketHandlers(io: SocketIOServer): void {
           await repo.createTopup(data.userId, tableId, seat.seatIndex, amt);
           socket.emit("topup_result", { status: "pending", amount: amt });
         }
+      } catch (err) {
+        fail(socket, err);
+      }
+    });
+
+    socket.on("chat", async ({ tableId, text }: { tableId: string; text: string }) => {
+      try {
+        if (typeof text !== "string") throw new InvalidActionError("پیام نامعتبر است");
+        // Throttle to keep the feed usable: 5 messages per 5 seconds per user.
+        const gate = rateLimit(`chat:${data.userId}`, 5, 5000);
+        if (!gate.ok) throw new InvalidActionError("پیام‌های زیاد؛ کمی صبر کنید");
+        await gameManager.chat(tableId, data.userId, text);
       } catch (err) {
         fail(socket, err);
       }

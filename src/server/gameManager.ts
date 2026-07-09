@@ -260,6 +260,12 @@ export class GameManager {
     const rt = this.tables.get(tableId);
     if (!rt) throw new InvalidActionError("میز فعال نیست");
     rt.game.act(userId, action); // throws InvalidActionError on illegal moves
+    // Announce an all-in in the feed. An all-in seat can't act again this hand,
+    // so this fires exactly once per player per all-in (on the transition).
+    const seat = rt.game.seats.find((s) => s.userId === userId);
+    if (seat && seat.status === "allin") {
+      this.pushLog(rt, `${seat.name ?? "بازیکن"} آل‌این کرد! 🔥`, "allin", { userId, name: seat.name ?? "بازیکن" });
+    }
     await this.recordLastAction(rt);
     await this.afterMutation(rt);
   }
@@ -577,9 +583,22 @@ export class GameManager {
   // --------------------------------------------------------------------------
   // Broadcasting
   // --------------------------------------------------------------------------
-  private pushLog(rt: TableRuntime, text: string): void {
-    rt.log.push({ id: ++rt.logSeq, ts: Date.now(), text });
+  private pushLog(rt: TableRuntime, text: string, kind: LogEntry["kind"] = "event", author?: LogEntry["author"]): void {
+    rt.log.push({ id: ++rt.logSeq, ts: Date.now(), text, kind, author });
     if (rt.log.length > LOG_CAP) rt.log.splice(0, rt.log.length - LOG_CAP);
+  }
+
+  /** A player chat message into the table feed (validated + rate-limited by the socket layer). */
+  async chat(tableId: string, userId: string, text: string): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) throw new InvalidActionError("میز فعال نیست");
+    const msg = text.replace(/[\p{Cc}\p{Cf}]/gu, "").trim().slice(0, 200);
+    if (!msg) return;
+    // Resolve the display name from the seat if present, else from the DB.
+    const seat = rt.game.seats.find((s) => s.userId === userId);
+    const name = seat?.name ?? (await repo.getUserById(userId))?.display_name ?? "بازیکن";
+    this.pushLog(rt, msg, "chat", { userId, name });
+    await this.broadcast(tableId);
   }
 
   async broadcast(tableId: string): Promise<void> {
