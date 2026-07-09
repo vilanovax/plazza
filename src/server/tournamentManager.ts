@@ -1,0 +1,248 @@
+/**
+ * Single-table (Sit & Go) tournament orchestrator.
+ *
+ * Runs on top of the normal table engine: it creates a table for the
+ * tournament, seats registered players with the starting stack, escalates the
+ * blinds on a timer, lets busted players re-buy during the rebuy period,
+ * eliminates players (recording their finishing place) and, when one player
+ * remains, splits the prize pool by the configured payout percentages.
+ *
+ * Note: this is a single-table format. Multi-table balancing is out of scope.
+ */
+import * as repo from "../lib/repo";
+import type { TableConfig } from "../lib/poker/types";
+import type { TournamentRow } from "../lib/models";
+import { gameManager } from "./gameManager";
+import { InvalidActionError } from "../lib/poker/engine";
+
+const NEXT_LEVEL_GRACE_MS = 500;
+
+export class TournamentManager {
+  private levelTimers = new Map<string, NodeJS.Timeout>();
+  private tableToTournament = new Map<string, string>();
+  private processing = new Set<string>();
+
+  init(): void {
+    // Route table hand-end events to the owning tournament (if any).
+    gameManager.onHandEndHook = (tableId: string) => {
+      const tid = this.tableToTournament.get(tableId);
+      if (tid) void this.onHandEnd(tid, tableId);
+    };
+  }
+
+  private levelOf(t: TournamentRow, level: number) {
+    const idx = Math.min(Math.max(1, level), t.blind_schedule.length) - 1;
+    return t.blind_schedule[idx];
+  }
+
+  // --------------------------------------------------------------------------
+  // Start
+  // --------------------------------------------------------------------------
+  async start(tournamentId: string, adminId: string): Promise<void> {
+    const t = await repo.getTournament(tournamentId);
+    if (!t) throw new InvalidActionError("تورنومنت یافت نشد");
+    if (t.status !== "scheduled") throw new InvalidActionError("تورنومنت قابل شروع نیست");
+    const entries = (await repo.listEntries(tournamentId)).filter((e) => e.status === "registered");
+    if (entries.length < 2) throw new InvalidActionError("حداقل دو شرکت‌کننده لازم است");
+
+    const l1 = this.levelOf(t, 1);
+    const settings = await repo.getSettings();
+    const config: TableConfig = {
+      name: t.name,
+      maxSeats: Math.min(9, Math.max(2, t.max_players)),
+      smallBlind: l1.sb,
+      bigBlind: l1.bb,
+      ante: l1.ante,
+      rakePercent: 0,
+      rakeCap: 0,
+      noFlopNoDrop: true,
+      minBuyIn: t.starting_stack,
+      maxBuyIn: t.starting_stack,
+      thinkTimeSec: settings.default_think_time_sec,
+      allowTopUp: false,
+      topUpMin: 0,
+      topUpMax: 0,
+      tableDurationMin: 0,
+      sitOutMaxMin: settings.sit_out_max_min,
+      extraTimeSec: settings.extra_time_sec,
+      extraTimeRequests: settings.extra_time_requests,
+    };
+    const table = await repo.createTable(config.name, config, adminId);
+    await repo.setTableTournament(table.id, tournamentId);
+    this.tableToTournament.set(table.id, tournamentId);
+
+    // Seat every registered player with the starting stack (chips already paid).
+    let seat = 0;
+    for (const e of entries) {
+      const user = await repo.getUserById(e.user_id);
+      if (!user) continue;
+      await gameManager.seatTournamentPlayer(table.id, seat++, e.user_id, user.display_name, t.starting_stack);
+      await repo.setEntry(tournamentId, e.user_id, { status: "active", chips: t.starting_stack });
+    }
+
+    const levelEnds = new Date(Date.now() + l1.minutes * 60_000).toISOString();
+    await repo.updateTournament(tournamentId, {
+      status: "running",
+      current_level: 1,
+      table_id: table.id,
+      started_at: new Date().toISOString(),
+      level_ends_at: levelEnds,
+    });
+    gameManager.logMessage(table.id, `تورنومنت شروع شد — سطح ۱`);
+    this.scheduleLevel(tournamentId, l1.minutes * 60_000);
+    gameManager.startTable(table.id);
+  }
+
+  // --------------------------------------------------------------------------
+  // Blind levels
+  // --------------------------------------------------------------------------
+  private scheduleLevel(tournamentId: string, ms: number): void {
+    this.clearLevelTimer(tournamentId);
+    this.levelTimers.set(tournamentId, setTimeout(() => void this.levelUp(tournamentId), ms + NEXT_LEVEL_GRACE_MS));
+  }
+
+  private clearLevelTimer(tournamentId: string): void {
+    const t = this.levelTimers.get(tournamentId);
+    if (t) {
+      clearTimeout(t);
+      this.levelTimers.delete(tournamentId);
+    }
+  }
+
+  private async levelUp(tournamentId: string): Promise<void> {
+    const t = await repo.getTournament(tournamentId);
+    if (!t || t.status !== "running" || !t.table_id) return;
+    const next = Math.min(t.current_level + 1, t.blind_schedule.length);
+    const level = this.levelOf(t, next);
+    await repo.updateTournament(tournamentId, {
+      current_level: next,
+      level_ends_at: new Date(Date.now() + level.minutes * 60_000).toISOString(),
+    });
+    await gameManager.setBlinds(t.table_id, level.sb, level.bb, level.ante);
+
+    // If the rebuy period just closed, remove anyone still busted.
+    if (next > t.config.rebuyThroughLevel) {
+      await this.onHandEnd(tournamentId, t.table_id, true);
+    }
+    if (next < t.blind_schedule.length) this.scheduleLevel(tournamentId, level.minutes * 60_000);
+  }
+
+  // --------------------------------------------------------------------------
+  // Re-buy
+  // --------------------------------------------------------------------------
+  private canRebuy(t: TournamentRow, entryRebuys: number): boolean {
+    return (
+      t.status === "running" &&
+      t.config.rebuyAllowed &&
+      t.current_level <= t.config.rebuyThroughLevel &&
+      (t.config.rebuyMaxCount < 0 || entryRebuys < t.config.rebuyMaxCount)
+    );
+  }
+
+  async rebuyByTable(tableId: string, userId: string): Promise<void> {
+    const tid = this.tableToTournament.get(tableId) ?? (await repo.getTournamentByTable(tableId))?.id;
+    if (!tid) throw new InvalidActionError("این میز تورنومنت نیست");
+    await this.rebuy(tid, userId);
+  }
+
+  async rebuy(tournamentId: string, userId: string): Promise<void> {
+    const t = await repo.getTournament(tournamentId);
+    if (!t || !t.table_id) throw new InvalidActionError("تورنومنت فعال نیست");
+    const entry = await repo.getEntry(tournamentId, userId);
+    if (!entry || entry.status !== "active") throw new InvalidActionError("شما در این تورنومنت فعال نیستید");
+    if (!this.canRebuy(t, entry.rebuys)) throw new InvalidActionError("امکان ری‌بای وجود ندارد");
+    const rt = gameManager.getRuntime(t.table_id);
+    const seat = rt?.game.seats.find((s) => s.userId === userId);
+    if (!seat || seat.stack > 0) throw new InvalidActionError("فقط پس از حذف شدن ژتون‌ها می‌توانید ری‌بای کنید");
+
+    await repo.buyIntoTournament(tournamentId, userId, t.buy_in_chips, true);
+    gameManager.addTournamentChips(t.table_id, userId, t.starting_stack);
+    await repo.setEntry(tournamentId, userId, { chips: t.starting_stack });
+    gameManager.logMessage(t.table_id, `${seat.name ?? "بازیکن"} ری‌بای کرد`);
+    gameManager.startTable(t.table_id);
+  }
+
+  // --------------------------------------------------------------------------
+  // Hand-end: busts, eliminations, finish
+  // --------------------------------------------------------------------------
+  private async onHandEnd(tournamentId: string, tableId: string, force = false): Promise<void> {
+    if (this.processing.has(tournamentId)) return;
+    this.processing.add(tournamentId);
+    try {
+      const t = await repo.getTournament(tournamentId);
+      if (!t || t.status !== "running") return;
+      const rt = gameManager.getRuntime(tableId);
+      if (!rt) return;
+
+      const seated = rt.game.seats.filter((s) => s.userId);
+      for (const s of seated) await repo.setEntry(tournamentId, s.userId as string, { chips: s.stack });
+
+      const active = (await repo.listEntries(tournamentId)).filter((e) => e.status === "active");
+      const busted = active
+        .map((e) => {
+          const seat = seated.find((s) => s.userId === e.user_id);
+          return { e, seat, stack: seat ? seat.stack : 0, committed: seat?.committedThisHand ?? 0 };
+        })
+        .filter((b) => b.stack <= 0);
+
+      // During the rebuy period, keep re-buyable players (unless forced).
+      const eliminate = busted.filter((b) => force || !this.canRebuy(t, b.e.rebuys));
+      eliminate.sort((a, b) => a.committed - b.committed); // shortest stack busts to the worst place
+
+      let remaining = active.length;
+      for (const b of eliminate) {
+        const place = remaining;
+        remaining -= 1;
+        await repo.setEntry(tournamentId, b.e.user_id, { place, status: "busted" });
+        const name = b.seat?.name ?? "بازیکن";
+        await gameManager.removeTournamentPlayer(tableId, b.e.user_id, `${name} در رتبه ${place} حذف شد`);
+      }
+
+      const stillActive = (await repo.listEntries(tournamentId)).filter((e) => e.status === "active");
+      if (stillActive.length <= 1) await this.finish(tournamentId, tableId, stillActive[0]?.user_id);
+    } finally {
+      this.processing.delete(tournamentId);
+    }
+  }
+
+  private async finish(tournamentId: string, tableId: string, winnerUserId?: string): Promise<void> {
+    const t = await repo.getTournament(tournamentId);
+    if (!t || t.status !== "running") return;
+    if (winnerUserId) await repo.setEntry(tournamentId, winnerUserId, { place: 1, status: "active" });
+
+    const entries = await repo.listEntries(tournamentId);
+    const byPlace = entries.filter((e) => e.place != null).sort((a, b) => (a.place as number) - (b.place as number));
+    const pool = t.prize_pool;
+    const payouts = t.config.payouts;
+
+    const awards: Array<{ userId: string; amount: number; place: number }> = [];
+    let distributed = 0;
+    for (let i = 0; i < payouts.length; i++) {
+      const place = i + 1;
+      const e = byPlace.find((x) => x.place === place);
+      if (!e) continue;
+      const amount = Math.floor((pool * payouts[i]) / 100);
+      awards.push({ userId: e.user_id, amount, place });
+      distributed += amount;
+    }
+    if (awards.length && pool - distributed > 0) awards[0].amount += pool - distributed; // odd chips to 1st
+
+    for (const a of awards) {
+      await repo.awardPrize(tournamentId, a.userId, a.amount, a.place, a.place === 1 ? "winner" : "busted");
+      const u = await repo.getUserById(a.userId);
+      gameManager.logMessage(tableId, `${u?.display_name ?? "بازیکن"} رتبه ${a.place} — جایزه ${a.amount.toLocaleString("fa")} ژتون`);
+    }
+
+    this.clearLevelTimer(tournamentId);
+    this.tableToTournament.delete(tableId);
+    await repo.updateTournament(tournamentId, { status: "finished", finished_at: new Date().toISOString() });
+    await repo.closeTable(tableId);
+    await gameManager.teardownTable(tableId);
+  }
+}
+
+// Shared across the socket bundle and Next route handlers (see gameManager).
+declare global {
+  var __tournamentManager: TournamentManager | undefined;
+}
+export const tournamentManager: TournamentManager = (globalThis.__tournamentManager ??= new TournamentManager());

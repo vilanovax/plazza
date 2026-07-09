@@ -26,6 +26,27 @@ import type {
 
 export class InvalidActionError extends Error {}
 
+const MAX_TIMER_SEC = 3600; // 1h — keeps timer math well within setTimeout limits
+
+function fin(v: number, def: number): number {
+  return Number.isFinite(v) ? v : def;
+}
+
+/** Coerce any config loaded from JSON into safe, finite values the engine relies on. */
+function normalizeConfig(c: TableConfig): TableConfig {
+  return {
+    ...c,
+    maxSeats: Math.min(9, Math.max(2, Math.trunc(fin(c.maxSeats, 6)))),
+    smallBlind: Math.max(1, Math.trunc(fin(c.smallBlind, 5))),
+    bigBlind: Math.max(1, Math.trunc(fin(c.bigBlind, 10))),
+    ante: Math.max(0, Math.trunc(fin(c.ante, 0))),
+    thinkTimeSec: Math.min(MAX_TIMER_SEC, Math.max(3, Math.trunc(fin(c.thinkTimeSec, 30)))),
+    sitOutMaxMin: Math.min(1440, Math.max(0, Math.trunc(fin(c.sitOutMaxMin, 5)))),
+    extraTimeSec: Math.min(MAX_TIMER_SEC, Math.max(0, Math.trunc(fin(c.extraTimeSec, 15)))),
+    extraTimeRequests: Number.isFinite(c.extraTimeRequests) ? Math.trunc(c.extraTimeRequests) : -1,
+  };
+}
+
 function emptySeat(seatIndex: number): SeatState {
   return {
     seatIndex,
@@ -62,9 +83,9 @@ export class HoldemGame {
 
   constructor(tableId: string, config: TableConfig, seats?: SeatState[]) {
     this.tableId = tableId;
-    this.config = config;
-    this.seats = seats ?? Array.from({ length: config.maxSeats }, (_, i) => emptySeat(i));
-    this.minRaise = config.bigBlind;
+    this.config = normalizeConfig(config);
+    this.seats = seats ?? Array.from({ length: this.config.maxSeats }, (_, i) => emptySeat(i));
+    this.minRaise = this.config.bigBlind;
   }
 
   // ---------------------------------------------------------------------------
@@ -540,12 +561,27 @@ export class HoldemGame {
     this.showOfferUntil = undefined;
   }
 
+  /** Add chips directly to a seat (tournament rebuy). Not allowed mid-hand. */
+  addChips(userId: string, amount: number): void {
+    const seat = this.seats.find((s) => s.userId === userId);
+    if (!seat || seat.status === "empty") throw new InvalidActionError("بازیکن یافت نشد");
+    if (!Number.isFinite(amount) || amount <= 0) throw new InvalidActionError("مبلغ نامعتبر است");
+    if (seat.status === "active" || seat.status === "allin") {
+      throw new InvalidActionError("در میانه دست نمی‌توان ژتون اضافه کرد");
+    }
+    seat.stack += amount;
+  }
+
   /** Toggle a player's sit-out. Takes effect from the next hand. */
   setSitOut(userId: string, out: boolean): void {
     const seat = this.seats.find((s) => s.userId === userId);
     if (!seat || seat.status === "empty") throw new InvalidActionError("شما سر این میز نیستید");
+    const wasOut = seat.sitOut === true;
     seat.sitOut = out;
-    seat.sitOutUntil = out ? Date.now() + this.config.sitOutMaxMin * 60_000 : undefined;
+    // Only (re)start the expiry clock on the transition INTO sit-out, so a
+    // player can't postpone auto-removal by re-toggling.
+    if (out && !wasOut) seat.sitOutUntil = Date.now() + this.config.sitOutMaxMin * 60_000;
+    else if (!out) seat.sitOutUntil = undefined;
   }
 
   /** Extend the current player's think time (time bank). */
@@ -555,9 +591,13 @@ export class HoldemGame {
     if (!seat || seat.userId !== userId) throw new InvalidActionError("نوبت شما نیست");
     const allowed = this.config.extraTimeRequests; // -1 = unlimited, 0 = off
     if (allowed === 0) throw new InvalidActionError("زمان اضافه در این میز غیرفعال است");
+    // At most one extension per turn, even when unlimited per hand — prevents a
+    // single decision from being stalled indefinitely.
+    if (seat.extraTimeThisTurn) throw new InvalidActionError("این نوبت یک‌بار زمان اضافه گرفته‌اید");
     const used = seat.extraTimeUsed ?? 0;
     if (allowed > 0 && used >= allowed) throw new InvalidActionError("سقف درخواست زمان اضافه پر شده است");
     seat.extraTimeUsed = used + 1;
+    seat.extraTimeThisTurn = true;
     this.actionDeadline = (this.actionDeadline ?? Date.now()) + this.config.extraTimeSec * 1000;
   }
 
@@ -630,6 +670,8 @@ export class HoldemGame {
   }
 
   private setDeadline(): void {
+    // Fresh turn -> the player may take one extra-time extension again.
+    if (this.currentTurnSeat != null) this.seats[this.currentTurnSeat].extraTimeThisTurn = false;
     this.actionDeadline = Date.now() + this.config.thinkTimeSec * 1000;
   }
 

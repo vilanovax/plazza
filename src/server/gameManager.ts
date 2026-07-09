@@ -47,6 +47,8 @@ export class GameManager {
   private io: SocketIOServer | null = null;
   private tables = new Map<string, TableRuntime>();
   private loading = new Map<string, Promise<TableRuntime>>();
+  /** Optional hook fired after a hand fully settles (used by tournaments). */
+  onHandEndHook?: (tableId: string) => void;
 
   setIo(io: SocketIOServer): void {
     this.io = io;
@@ -133,20 +135,30 @@ export class GameManager {
     await this.broadcast(tableId);
   }
 
+  /**
+   * Core seat removal: fold+remove the seat, optionally cash the stack back to
+   * the bank, clear the sit-out timer. Does NOT log or broadcast — callers do
+   * that once with an accurate message.
+   */
+  private async removeSeatCore(rt: TableRuntime, userId: string, cashOut: boolean): Promise<string | null> {
+    const seat = rt.game.seats.find((s) => s.userId === userId);
+    if (!seat) return null;
+    const name = seat.name ?? "بازیکن";
+    const chips = rt.game.leave(seat.seatIndex);
+    if (cashOut && chips > 0) {
+      await repo.applyLedger({ userId, type: "cash_out", amount: chips, tableId: rt.tableId, note: "خروج از میز" });
+    }
+    await repo.removeSeat(rt.tableId, seat.seatIndex);
+    this.clearSitOutTimer(rt, userId);
+    return name;
+  }
+
   /** Leave the table and return the remaining stack to the bank. */
   async leave(tableId: string, userId: string): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt) return;
-    const seat = rt.game.seats.find((s) => s.userId === userId);
-    if (!seat) return;
-    const seatIndex = seat.seatIndex;
-    const name = seat.name ?? "بازیکن";
-    const chips = rt.game.leave(seatIndex);
-    if (chips > 0) {
-      await repo.applyLedger({ userId, type: "cash_out", amount: chips, tableId, note: "خروج از میز" });
-    }
-    await repo.removeSeat(tableId, seatIndex);
-    this.clearSitOutTimer(rt, userId);
+    const name = await this.removeSeatCore(rt, userId, true);
+    if (name === null) return;
     this.pushLog(rt, `${name} میز را ترک کرد`);
     await this.afterMutation(rt);
   }
@@ -244,12 +256,16 @@ export class GameManager {
   async sitOut(tableId: string, userId: string, out: boolean): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt) throw new InvalidActionError("میز فعال نیست");
-    rt.game.setSitOut(userId, out);
     const seat = rt.game.seats.find((s) => s.userId === userId);
-    const name = seat?.name ?? "بازیکن";
+    if (!seat) throw new InvalidActionError("شما سر این میز نیستید");
+    const wasOut = seat.sitOut === true;
+    if (wasOut === out) return; // no change — don't reset the removal timer
+    const name = seat.name ?? "بازیکن";
+
+    rt.game.setSitOut(userId, out);
     this.clearSitOutTimer(rt, userId);
     if (out) {
-      const ms = Math.max(0, rt.game.config.sitOutMaxMin) * 60_000;
+      const ms = Math.min(2 ** 31 - 1, Math.max(0, rt.game.config.sitOutMaxMin) * 60_000);
       this.pushLog(rt, `${name} نشست بیرون (سیت‌اوت)`);
       if (ms > 0) {
         rt.sitOutTimers.set(userId, setTimeout(() => this.autoRemoveSatOut(tableId, userId), ms));
@@ -275,23 +291,27 @@ export class GameManager {
     rt.sitOutTimers.delete(userId);
     const seat = rt.game.seats.find((s) => s.userId === userId);
     if (!seat || !seat.sitOut) return; // came back in the meantime
-    const name = seat.name ?? "بازیکن";
-    await this.leave(tableId, userId);
+    const name = await this.removeSeatCore(rt, userId, true);
+    if (name === null) return;
     this.pushLog(rt, `${name} به دلیل سیت‌اوت طولانی حذف شد`);
-    await this.broadcast(tableId);
+    await this.afterMutation(rt);
   }
 
   /** Admin removes a player from the table (cashing out their stack). */
-  async kick(tableId: string, actorRole: string, seatIndex: number): Promise<void> {
+  async kick(tableId: string, actorRole: string, seatIndex: number, expectedUserId?: string): Promise<void> {
     if (actorRole !== "admin") throw new InvalidActionError("فقط مدیر می‌تواند بازیکن را حذف کند");
     const rt = this.tables.get(tableId);
     if (!rt) throw new InvalidActionError("میز فعال نیست");
     const seat = rt.game.seats[seatIndex];
     if (!seat || !seat.userId) throw new InvalidActionError("صندلی خالی است");
-    const name = seat.name ?? "بازیکن";
-    await this.leave(tableId, seat.userId);
+    // Guard against the seat changing occupants between selection and confirm.
+    if (expectedUserId && seat.userId !== expectedUserId) {
+      throw new InvalidActionError("بازیکن این صندلی تغییر کرده است");
+    }
+    const name = await this.removeSeatCore(rt, seat.userId, true);
+    if (name === null) return;
     this.pushLog(rt, `${name} توسط مدیر از میز حذف شد`);
-    await this.broadcast(tableId);
+    await this.afterMutation(rt);
   }
 
   /** Player asks for extra think-time on their turn (time bank). */
@@ -427,6 +447,71 @@ export class GameManager {
     rt.currentHandId = undefined;
     // Schedule the next hand.
     this.maybeStartHand(rt);
+    // Let a tournament (if any) process busts / eliminations / payouts.
+    this.onHandEndHook?.(rt.tableId);
+  }
+
+  // --------------------------------------------------------------------------
+  // Tournament integration (chips here are play chips, not bank chips)
+  // --------------------------------------------------------------------------
+  async setBlinds(tableId: string, sb: number, bb: number, ante: number): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) return;
+    rt.game.config.smallBlind = sb;
+    rt.game.config.bigBlind = bb;
+    rt.game.config.ante = ante;
+    this.pushLog(rt, `بلایندها به ${sb}/${bb} افزایش یافت`);
+    await this.broadcast(tableId);
+  }
+
+  async seatTournamentPlayer(tableId: string, seatIndex: number, userId: string, name: string, stack: number): Promise<void> {
+    const rt = await this.ensureLoaded(tableId);
+    rt.game.sit(seatIndex, userId, name, stack);
+    await repo.upsertSeat(tableId, seatIndex, userId, stack, stack);
+    this.pushLog(rt, `${name} وارد تورنومنت شد`);
+  }
+
+  addTournamentChips(tableId: string, userId: string, amount: number): void {
+    const rt = this.tables.get(tableId);
+    if (!rt) throw new InvalidActionError("میز فعال نیست");
+    rt.game.addChips(userId, amount);
+    const seat = rt.game.seats.find((s) => s.userId === userId);
+    if (seat) void repo.updateSeatStack(tableId, seat.seatIndex, seat.stack);
+  }
+
+  async removeTournamentPlayer(tableId: string, userId: string, reason: string): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) return;
+    const name = await this.removeSeatCore(rt, userId, false); // play chips, no bank credit
+    if (name === null) return;
+    this.pushLog(rt, reason);
+    await this.afterMutation(rt);
+  }
+
+  startTable(tableId: string): void {
+    const rt = this.tables.get(tableId);
+    if (!rt) return;
+    this.maybeStartHand(rt);
+    void this.broadcast(tableId);
+  }
+
+  /** Remove a table's runtime without cashing play chips to the bank. */
+  async teardownTable(tableId: string): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) return;
+    if (rt.actionTimer) clearTimeout(rt.actionTimer);
+    if (rt.nextHandTimer) clearTimeout(rt.nextHandTimer);
+    for (const t of rt.sitOutTimers.values()) clearTimeout(t);
+    for (const seat of rt.game.seats) {
+      if (seat.userId) await repo.removeSeat(tableId, seat.seatIndex).catch(() => {});
+    }
+    await this.broadcast(tableId);
+    this.tables.delete(tableId);
+  }
+
+  logMessage(tableId: string, text: string): void {
+    const rt = this.tables.get(tableId);
+    if (rt) this.pushLog(rt, text);
   }
 
   // --------------------------------------------------------------------------
@@ -450,4 +535,10 @@ export class GameManager {
   }
 }
 
-export const gameManager = new GameManager();
+// The custom server bundle (sockets) and Next's compiled route handlers are
+// separate module graphs in the SAME process, so a plain module-level singleton
+// would give each side its own instance. Pin it on globalThis so both share one.
+declare global {
+  var __gameManager: GameManager | undefined;
+}
+export const gameManager: GameManager = (globalThis.__gameManager ??= new GameManager());

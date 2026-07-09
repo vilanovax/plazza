@@ -8,6 +8,7 @@ import { sessionFromCookieHeader } from "../lib/auth";
 import { InvalidActionError } from "../lib/poker/engine";
 import type { PlayerAction } from "../lib/poker/types";
 import { gameManager } from "./gameManager";
+import { tournamentManager } from "./tournamentManager";
 import * as repo from "../lib/repo";
 
 interface SocketData {
@@ -25,6 +26,7 @@ function fail(socket: Socket, err: unknown) {
 
 export function registerSocketHandlers(io: SocketIOServer): void {
   gameManager.setIo(io);
+  tournamentManager.init();
 
   // Authenticate the handshake.
   io.use(async (socket, nextFn) => {
@@ -86,7 +88,7 @@ export function registerSocketHandlers(io: SocketIOServer): void {
 
     socket.on("sit_out", async ({ tableId, out }: { tableId: string; out: boolean }) => {
       try {
-        await gameManager.sitOut(tableId, data.userId, Boolean(out));
+        await gameManager.sitOut(tableId, data.userId, out === true);
       } catch (err) {
         fail(socket, err);
       }
@@ -100,10 +102,18 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       }
     });
 
-    // Admin-only: remove a player from the table.
-    socket.on("kick", async ({ tableId, seatIndex }: { tableId: string; seatIndex: number }) => {
+    // Admin-only: remove a player from the table (verified by expected userId).
+    socket.on("kick", async ({ tableId, seatIndex, userId }: { tableId: string; seatIndex: number; userId: string }) => {
       try {
-        await gameManager.kick(tableId, data.role, seatIndex);
+        await gameManager.kick(tableId, data.role, seatIndex, userId);
+      } catch (err) {
+        fail(socket, err);
+      }
+    });
+
+    socket.on("rebuy", async ({ tableId }: { tableId: string }) => {
+      try {
+        await tournamentManager.rebuyByTable(tableId, data.userId);
       } catch (err) {
         fail(socket, err);
       }

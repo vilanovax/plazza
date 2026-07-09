@@ -86,6 +86,8 @@ export interface SeatState {
   sitOutUntil?: number;
   /** Extra-time requests already used in the current hand. */
   extraTimeUsed?: number;
+  /** Whether extra time was already taken on the current turn. */
+  extraTimeThisTurn?: boolean;
   // Private — only ever sent to the owning player.
   holeCards?: Card[];
 }

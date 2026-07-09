@@ -1,0 +1,12 @@
+-- Runtime columns for single-table (Sit & Go) tournaments.
+ALTER TABLE tournaments
+  ADD COLUMN IF NOT EXISTS prize_pool     BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS current_level  INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS table_id       UUID REFERENCES poker_tables(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS level_ends_at  TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS started_at     TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS finished_at    TIMESTAMPTZ;
+
+ALTER TABLE tournament_entries
+  ADD COLUMN IF NOT EXISTS rebuys INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS prize  BIGINT NOT NULL DEFAULT 0;

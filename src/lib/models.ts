@@ -1,4 +1,5 @@
 import type { TableConfig } from "./poker/types";
+import type { BlindLevel, TournamentConfig } from "./tournament/types";
 
 export type Role = "admin" | "player";
 
@@ -79,4 +80,38 @@ export interface AdminSettings {
   sit_out_max_min: number;
   extra_time_sec: number;
   extra_time_requests: number;
+}
+
+export type TournamentStatus = "scheduled" | "running" | "finished" | "cancelled";
+
+export interface TournamentRow {
+  id: string;
+  name: string;
+  status: TournamentStatus;
+  buy_in_chips: number;
+  starting_stack: number;
+  max_players: number;
+  blind_schedule: BlindLevel[];
+  config: TournamentConfig;
+  created_by: string | null;
+  prize_pool: number;
+  current_level: number;
+  table_id: string | null;
+  level_ends_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+}
+
+export type EntryStatus = "registered" | "active" | "busted" | "winner";
+
+export interface TournamentEntryRow {
+  tournament_id: string;
+  user_id: string;
+  chips: number;
+  place: number | null;
+  status: EntryStatus;
+  rebuys: number;
+  prize: number;
+  registered_at: string;
 }

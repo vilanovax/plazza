@@ -15,7 +15,8 @@ export interface TableSocket {
   showCards: () => void;
   sitOut: (out: boolean) => void;
   requestExtraTime: () => void;
-  kick: (seatIndex: number) => void;
+  kick: (seatIndex: number, userId: string) => void;
+  rebuy: () => void;
 }
 
 export function useTableSocket(tableId: string): TableSocket {
@@ -50,8 +51,9 @@ export function useTableSocket(tableId: string): TableSocket {
   const showCards = useCallback(() => sockRef.current?.emit("show_cards", { tableId }), [tableId]);
   const sitOut = useCallback((out: boolean) => sockRef.current?.emit("sit_out", { tableId, out }), [tableId]);
   const requestExtraTime = useCallback(() => sockRef.current?.emit("extra_time", { tableId }), [tableId]);
-  const kick = useCallback((seatIndex: number) => sockRef.current?.emit("kick", { tableId, seatIndex }), [tableId]);
+  const kick = useCallback((seatIndex: number, userId: string) => sockRef.current?.emit("kick", { tableId, seatIndex, userId }), [tableId]);
+  const rebuy = useCallback(() => sockRef.current?.emit("rebuy", { tableId }), [tableId]);
   const clearError = useCallback(() => setError(null), []);
 
-  return { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick };
+  return { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy };
 }

@@ -98,7 +98,9 @@ export function evaluate(cards: Card[]): HandRank {
 
   const quad = grouped.find(([, n]) => n === 4);
   if (quad) {
-    const kicker = grouped.find(([r]) => r !== quad[0])![0];
+    // Kicker is the highest remaining card by RANK (not by group size — a lower
+    // pair must not outrank a higher single).
+    const kicker = Math.max(...grouped.filter(([r]) => r !== quad[0]).map(([r]) => r));
     return { category: HandCategory.FourOfAKind, score: encode(HandCategory.FourOfAKind, [quad[0], kicker]) };
   }
 
@@ -128,7 +130,9 @@ export function evaluate(cards: Card[]): HandRank {
 
   if (pairs.length >= 2) {
     const [p1, p2] = [pairs[0][0], pairs[1][0]];
-    const kicker = grouped.find(([r]) => r !== p1 && r !== p2)![0];
+    // Highest remaining card by RANK — with a third pair present, one of its
+    // cards (or a single) can be the kicker, whichever rank is highest.
+    const kicker = Math.max(...grouped.filter(([r]) => r !== p1 && r !== p2).map(([r]) => r));
     return { category: HandCategory.TwoPair, score: encode(HandCategory.TwoPair, [p1, p2, kicker]) };
   }
 

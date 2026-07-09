@@ -33,6 +33,8 @@
     "esbuild": "^0.28.1",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
+    "playwright": "^1.61.1",
+    "pokersolver": "^2.1.4",
     "tailwindcss": "^4",
     "tsx": "^4.19.2",
     "typescript": "^5"

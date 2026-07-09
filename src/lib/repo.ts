@@ -10,9 +10,12 @@ import type {
   LedgerType,
   PokerTableRow,
   TopupRequest,
+  TournamentRow,
+  TournamentEntryRow,
   User,
 } from "./models";
 import type { TableConfig } from "./poker/types";
+import type { BlindLevel, TournamentConfig } from "./tournament/types";
 
 // ---------------------------------------------------------------------------
 // Users
@@ -339,9 +342,15 @@ function finishHandParams(
   return [handId, community, pot, rake, deckSeed ?? null, JSON.stringify(result)];
 }
 
-/** Re-persist only the result JSON (used when a winner reveals cards late). */
+/** Re-persist only the result JSON of a *finished* hand (late card reveal). */
 export async function updateHandResult(handId: string, result: unknown): Promise<void> {
-  await query("UPDATE hands SET result = $2 WHERE id = $1", [handId, JSON.stringify(result)]);
+  const rows = await query(
+    "UPDATE hands SET result = $2 WHERE id = $1 AND ended_at IS NOT NULL RETURNING id",
+    [handId, JSON.stringify(result)]
+  );
+  if (rows.length === 0) {
+    throw new Error(`updateHandResult: no finished hand ${handId}`);
+  }
 }
 
 export async function finishHandTx(
@@ -438,6 +447,152 @@ export async function insertAction(
      VALUES ($1,$2,$3,$4,$5,$6)`,
     [handId, seatIndex, userId, phase, action, amount]
   );
+}
+
+// ---------------------------------------------------------------------------
+// Tournaments (single-table Sit & Go)
+// ---------------------------------------------------------------------------
+export async function createTournament(input: {
+  name: string;
+  buyInChips: number;
+  startingStack: number;
+  maxPlayers: number;
+  blindSchedule: BlindLevel[];
+  config: TournamentConfig;
+  createdBy: string;
+}): Promise<TournamentRow> {
+  const row = await one<TournamentRow>(
+    `INSERT INTO tournaments (name, buy_in_chips, starting_stack, max_players, blind_schedule, config, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+    [
+      input.name,
+      input.buyInChips,
+      input.startingStack,
+      input.maxPlayers,
+      JSON.stringify(input.blindSchedule),
+      JSON.stringify(input.config),
+      input.createdBy,
+    ]
+  );
+  return row!;
+}
+
+export async function listTournaments(statuses?: string[]): Promise<TournamentRow[]> {
+  if (statuses && statuses.length) {
+    return query<TournamentRow>(
+      `SELECT * FROM tournaments WHERE status = ANY($1) ORDER BY created_at DESC`,
+      [statuses]
+    );
+  }
+  return query<TournamentRow>("SELECT * FROM tournaments ORDER BY created_at DESC");
+}
+
+export async function getTournament(id: string): Promise<TournamentRow | null> {
+  return one<TournamentRow>("SELECT * FROM tournaments WHERE id = $1", [id]);
+}
+
+export async function getTournamentByTable(tableId: string): Promise<TournamentRow | null> {
+  return one<TournamentRow>("SELECT * FROM tournaments WHERE table_id = $1", [tableId]);
+}
+
+export async function updateTournament(id: string, patch: Record<string, unknown>): Promise<void> {
+  const allowed = new Set([
+    "status",
+    "prize_pool",
+    "current_level",
+    "table_id",
+    "level_ends_at",
+    "started_at",
+    "finished_at",
+  ]);
+  const keys = Object.keys(patch).filter((k) => allowed.has(k));
+  if (!keys.length) return;
+  const set = keys.map((k, i) => `${k} = $${i + 2}`).join(", ");
+  await query(`UPDATE tournaments SET ${set} WHERE id = $1`, [id, ...keys.map((k) => patch[k])]);
+}
+
+export async function listEntries(tournamentId: string): Promise<TournamentEntryRow[]> {
+  return query<TournamentEntryRow>(
+    "SELECT * FROM tournament_entries WHERE tournament_id = $1 ORDER BY registered_at ASC",
+    [tournamentId]
+  );
+}
+
+export async function getEntry(tournamentId: string, userId: string): Promise<TournamentEntryRow | null> {
+  return one<TournamentEntryRow>(
+    "SELECT * FROM tournament_entries WHERE tournament_id = $1 AND user_id = $2",
+    [tournamentId, userId]
+  );
+}
+
+/** Register (or re-buy for) a player: debit bank + add to prize pool atomically. */
+export async function buyIntoTournament(
+  tournamentId: string,
+  userId: string,
+  buyInChips: number,
+  isRebuy: boolean
+): Promise<void> {
+  await tx(async (client) => {
+    await applyLedgerTx(client, {
+      userId,
+      type: "buy_in",
+      amount: -buyInChips,
+      note: isRebuy ? "ری‌بای تورنومنت" : "ثبت‌نام تورنومنت",
+    });
+    if (isRebuy) {
+      await client.query(
+        `UPDATE tournament_entries SET rebuys = rebuys + 1 WHERE tournament_id = $1 AND user_id = $2`,
+        [tournamentId, userId]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO tournament_entries (tournament_id, user_id, status) VALUES ($1,$2,'registered')
+         ON CONFLICT (tournament_id, user_id) DO NOTHING`,
+        [tournamentId, userId]
+      );
+    }
+    await client.query("UPDATE tournaments SET prize_pool = prize_pool + $2 WHERE id = $1", [
+      tournamentId,
+      buyInChips,
+    ]);
+  });
+}
+
+export async function setEntry(
+  tournamentId: string,
+  userId: string,
+  patch: { chips?: number; place?: number | null; status?: string }
+): Promise<void> {
+  const keys = Object.keys(patch);
+  if (!keys.length) return;
+  const set = keys.map((k, i) => `${k} = $${i + 3}`).join(", ");
+  await query(
+    `UPDATE tournament_entries SET ${set} WHERE tournament_id = $1 AND user_id = $2`,
+    [tournamentId, userId, ...keys.map((k) => (patch as Record<string, unknown>)[k])]
+  );
+}
+
+/** Award a prize: credit the bank and record it on the entry (one transaction). */
+export async function awardPrize(
+  tournamentId: string,
+  userId: string,
+  amount: number,
+  place: number,
+  status: "busted" | "winner"
+): Promise<void> {
+  await tx(async (client) => {
+    if (amount > 0) {
+      await applyLedgerTx(client, { userId, type: "win", amount, tableId: null, note: `جایزه تورنومنت (رتبه ${place})` });
+    }
+    await client.query(
+      `UPDATE tournament_entries SET prize = $3, place = $4, status = $5 WHERE tournament_id = $1 AND user_id = $2`,
+      [tournamentId, userId, amount, place, status]
+    );
+  });
+}
+
+export async function setTableTournament(tableId: string, tournamentId: string): Promise<void> {
+  await query("UPDATE poker_tables SET tournament_id = $2 WHERE id = $1", [tableId, tournamentId]);
 }
 
 export { getPool };

@@ -88,7 +88,113 @@ export default function LobbyPage() {
           </Link>
         ))}
       </div>
+
+      <TournamentsSection isAdmin={me.role === "admin"} />
     </main>
+  );
+}
+
+interface TournamentSummary {
+  id: string; name: string; status: string; buyInChips: number; startingStack: number;
+  maxPlayers: number; registered: number; prizePool: number; payouts: number[];
+}
+
+function TournamentsSection({ isAdmin }: { isAdmin: boolean }) {
+  const [items, setItems] = useState<TournamentSummary[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const load = useCallback(() => api<{ tournaments: TournamentSummary[] }>("/api/tournaments").then((d) => setItems(d.tournaments)), []);
+  useEffect(() => { load(); }, [load]);
+
+  async function register(id: string) {
+    try { await api(`/api/tournaments/${id}/register`, { method: "POST" }); load(); }
+    catch (e) { alert((e as Error).message); }
+  }
+  async function start(id: string) {
+    try { await api(`/api/tournaments/${id}/start`, { method: "POST" }); load(); }
+    catch (e) { alert((e as Error).message); }
+  }
+
+  const STATUS_FA: Record<string, string> = { scheduled: "در انتظار", running: "در حال اجرا", finished: "پایان‌یافته", cancelled: "لغو" };
+
+  return (
+    <section style={{ marginTop: 22 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <h2 style={{ fontSize: 17, margin: 0 }}>🏆 تورنومنت‌ها</h2>
+        {isAdmin && <button className="btn btn-gold" style={{ fontSize: 13 }} onClick={() => setShowCreate((s) => !s)}>+ ساخت تورنومنت</button>}
+      </div>
+      {showCreate && <CreateTournament onDone={() => { setShowCreate(false); load(); }} />}
+      <div style={{ display: "grid", gap: 8 }}>
+        {items.length === 0 && <div className="panel" style={{ padding: 16, color: "var(--muted)" }}>تورنومنتی وجود ندارد.</div>}
+        {items.map((t) => (
+          <div key={t.id} className="panel" style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div>
+              <div style={{ fontWeight: 700 }}>{t.name}</div>
+              <div style={{ color: "var(--muted)", fontSize: 12 }}>
+                {STATUS_FA[t.status] ?? t.status} · ورودی {t.buyInChips.toLocaleString("fa")} · استک {t.startingStack.toLocaleString("fa")} · {t.registered.toLocaleString("fa")}/{t.maxPlayers.toLocaleString("fa")} نفر · جوایز {t.payouts.join("/")}٪
+              </div>
+              <div style={{ color: "var(--gold)", fontSize: 12 }}>مجموع جایزه: {t.prizePool.toLocaleString("fa")}</div>
+            </div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {t.status === "scheduled" && <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>ثبت‌نام</button>}
+              {t.status === "scheduled" && isAdmin && <button className="btn btn-gold" style={{ fontSize: 12 }} onClick={() => start(t.id)}>شروع</button>}
+              {t.status === "running" && <Link href={`/tournament/${t.id}`} className="btn btn-ghost" style={{ fontSize: 12 }}>مشاهده</Link>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CreateTournament({ onDone }: { onDone: () => void }) {
+  const [f, setF] = useState({
+    name: "تورنومنت جدید", buyInChips: 1000, startingStack: 1500, maxPlayers: 6,
+    startBigBlind: 20, levelMinutes: 10, levels: 15,
+    rebuyAllowed: true, rebuyMaxCount: -1, rebuyThroughLevel: 4, payoutPreset: "",
+  });
+  const [err, setErr] = useState("");
+  async function create() {
+    setErr("");
+    try {
+      const body = { ...f, payoutPreset: f.payoutPreset || undefined };
+      await api("/api/tournaments", { method: "POST", body });
+      onDone();
+    } catch (e) { setErr((e as Error).message); }
+  }
+  const num = (label: string, k: keyof typeof f) => (
+    <label style={{ fontSize: 12, color: "var(--muted)" }}>{label}
+      <input type="number" value={f[k] as number} onChange={(e) => setF({ ...f, [k]: Number(e.target.value) })} style={miniInput} /></label>
+  );
+  return (
+    <div className="panel" style={{ padding: 16, marginBottom: 12 }}>
+      <label style={{ fontSize: 12, color: "var(--muted)" }}>نام
+        <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} style={miniInput} /></label>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
+        {num("ورودی (چیپ)", "buyInChips")}
+        {num("استک شروع", "startingStack")}
+        {num("حداکثر بازیکن", "maxPlayers")}
+        {num("بیگ‌بلایند شروع", "startBigBlind")}
+        {num("دقیقه هر سطح", "levelMinutes")}
+        {num("تعداد سطوح", "levels")}
+        {num("حداکثر ری‌بای (۱-=نامحدود)", "rebuyMaxCount")}
+        {num("ری‌بای تا سطح", "rebuyThroughLevel")}
+        <label style={{ fontSize: 12, color: "var(--muted)" }}>تقسیم جایزه
+          <select value={f.payoutPreset} onChange={(e) => setF({ ...f, payoutPreset: e.target.value })} style={miniInput}>
+            <option value="">پیش‌فرض (بر اساس تعداد)</option>
+            <option value="winner-takes-all">۱۰۰ (نفر اول)</option>
+            <option value="70-30">۷۰/۳۰</option>
+            <option value="60-40">۶۰/۴۰</option>
+            <option value="50-30-20">۵۰/۳۰/۲۰</option>
+            <option value="40-30-20-10">۴۰/۳۰/۲۰/۱۰</option>
+          </select>
+        </label>
+        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+          <input type="checkbox" checked={f.rebuyAllowed} onChange={(e) => setF({ ...f, rebuyAllowed: e.target.checked })} />ری‌بای مجاز
+        </label>
+      </div>
+      {err && <div style={{ color: "var(--danger)", fontSize: 13, marginTop: 8 }}>{err}</div>}
+      <button className="btn btn-primary" style={{ marginTop: 12, width: "100%" }} onClick={create}>ایجاد تورنومنت</button>
+    </div>
   );
 }
 

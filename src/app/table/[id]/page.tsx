@@ -11,6 +11,11 @@ import type { PublicGameState, PlayerAction, TableConfig, LogEntry } from "@/lib
 
 type PreAction = "fold" | "check_fold" | "check";
 const BETTING_PHASES = new Set(["preflop", "flop", "turn", "river"]);
+
+interface TournamentBanner {
+  id: string; level: number; sb: number; bb: number; ante: number;
+  prizePool: number; playersLeft: number; buyInChips: number; canRebuy: boolean;
+}
 import { evaluate, CATEGORY_NAMES_FA } from "@/lib/poker/evaluator";
 import type { Card } from "@/lib/poker/cards";
 
@@ -32,14 +37,24 @@ const PHASE_FA: Record<string, string> = {
 export default function TablePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick } = useTableSocket(id);
+  const { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy } = useTableSocket(id);
   const [me, setMe] = useState<Me | null>(null);
+  const [tourney, setTourney] = useState<TournamentBanner | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [statsFor, setStatsFor] = useState<{ userId: string; name: string; seatIndex: number } | null>(null);
   // Pre-selected action to auto-run when it becomes the player's turn.
   const [preAction, setPreAction] = useState<{ type: PreAction; handNo: number } | null>(null);
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
+
+  // Poll the tournament summary (if this table belongs to one).
+  const loadTourney = useCallback(() => {
+    api<{ tournament: TournamentBanner | null }>(`/api/tournaments/by-table/${id}`).then((d) => setTourney(d.tournament)).catch(() => {});
+  }, [id]);
+  useEffect(() => { loadTourney(); }, [loadTourney]);
+  useEffect(() => {
+    if (state?.phase === "hand_complete") loadTourney();
+  }, [state?.phase, state?.handNo, loadTourney]);
 
   const seatCount = state?.config.maxSeats ?? 6;
   const viewerSeat = state?.viewerSeat ?? null;
@@ -100,6 +115,18 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           <span style={{ fontSize: 12, color: connected ? "var(--accent)" : "var(--danger)" }}>{connected ? "متصل" : "قطع"}</span>
         </div>
       </header>
+
+      {tourney && (
+        <div className="panel" style={{ padding: "6px 12px", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: "var(--gold)", fontSize: 12 }}>
+          <span>🏆 سطح {tourney.level.toLocaleString("fa")} · بلایند {tourney.sb.toLocaleString("fa")}/{tourney.bb.toLocaleString("fa")}{tourney.ante ? ` (آنته ${tourney.ante.toLocaleString("fa")})` : ""}</span>
+          <span style={{ color: "var(--gold)" }}>جایزه {tourney.prizePool.toLocaleString("fa")} · {tourney.playersLeft.toLocaleString("fa")} نفر</span>
+        </div>
+      )}
+      {tourney?.canRebuy && (
+        <button className="btn btn-gold" style={{ marginBottom: 6 }} onClick={rebuy}>
+          ری‌بای ({tourney.buyInChips.toLocaleString("fa")} چیپ)
+        </button>
+      )}
 
       {/* Felt */}
       <div style={{ position: "relative", flex: 1, minHeight: 420, margin: "8px 0" }}>
@@ -206,7 +233,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           userId={statsFor.userId}
           name={statsFor.name}
           canKick={me?.role === "admin" && statsFor.userId !== me?.id}
-          onKick={() => { kick(statsFor.seatIndex); setStatsFor(null); }}
+          onKick={() => { kick(statsFor.seatIndex, statsFor.userId); setStatsFor(null); }}
           onClose={() => setStatsFor(null)}
         />
       )}

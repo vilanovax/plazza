@@ -167,15 +167,16 @@ test("sit-out excludes a player from the next deal", () => {
   assert.equal(g.seats[0].holeCards?.length, 2); // others still dealt
 });
 
-test("extra time extends the deadline and respects the per-hand limit", () => {
-  const g = new HoldemGame("tET", cfg({ extraTimeRequests: 1, extraTimeSec: 20 }));
+test("extra time extends the deadline; at most one per turn", () => {
+  const g = new HoldemGame("tET", cfg({ extraTimeRequests: -1, extraTimeSec: 20 }));
   g.sit(0, "u0", "A", 1000);
   g.sit(1, "u1", "B", 1000);
   g.startHand(); // heads-up: seat0 acts first
   const before = g.actionDeadline ?? 0;
   g.requestExtraTime("u0");
   assert.ok((g.actionDeadline ?? 0) >= before + 20_000 - 50);
-  assert.throws(() => g.requestExtraTime("u0"), /سقف/); // only 1 allowed
+  // A second request on the SAME turn is rejected even when unlimited per hand.
+  assert.throws(() => g.requestExtraTime("u0"), /یک‌بار/);
 });
 
 test("extra time can be disabled per table", () => {

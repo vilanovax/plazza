@@ -47,6 +47,20 @@ test("best 5 of 7 chooses the top straight", () => {
   assert.ok(nineHigh.score > eightHigh.score);
 });
 
+test("two-pair kicker is the highest remaining card even with a third pair", () => {
+  // Q Q 7 7 5 5 6  -> two pair Q&7, kicker 6 (NOT the third pair's 5)
+  const withThirdPair = evaluate(H("Qs Qc 7h 7d 5c 5s 6d"));
+  const plainSix = evaluate(H("Qh Qd 7s 7c 6h 3c 2d")); // Q Q 7 7 kicker 6
+  assert.equal(withThirdPair.score, plainSix.score);
+});
+
+test("quads kicker is the highest single, not a lower pair", () => {
+  // 2 2 2 2 K 3 3 -> quad 2s, kicker K (NOT the pair of 3s)
+  const withPair = evaluate(H("2s 2c 2h 2d Kd 3c 3s"));
+  const plainK = evaluate(H("2s 2c 2h 2d Kd 9c 4s")); // quad 2s kicker K
+  assert.equal(withPair.score, plainK.score);
+});
+
 test("identical hands tie", () => {
   assert.equal(compareHands(H("As Ks Qh Jd Tc 2s 3d"), H("Ad Kd Qc Js Th 2c 4d")), 0);
 });
