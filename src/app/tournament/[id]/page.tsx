@@ -73,6 +73,9 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
   const cur = d.blindSchedule.find((l) => l.level === d.currentLevel);
   const next = d.blindSchedule.find((l) => l.level === d.currentLevel + 1);
   const onBreak = cur?.isBreak === true;
+  // Playable level = how many non-break entries up to and including the current
+  // position — what a player thinks of as "level N" regardless of breaks.
+  const playLevel = d.blindSchedule.slice(0, d.currentLevel).filter((l) => !l.isBreak).length;
 
   const active = d.entries.filter((e) => e.status === "active");
   const playersLeft = active.length;
@@ -92,7 +95,7 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
   const msLeft = running && d.levelEndsAt ? Date.parse(d.levelEndsAt) - now : 0;
 
   const lateReg = d.config.lateRegThroughLevel ?? 0;
-  const lateRegOpen = running && lateReg > 0 && d.currentLevel <= lateReg;
+  const lateRegOpen = running && lateReg > 0 && playLevel <= lateReg;
 
   const sorted = [...d.entries].sort((a, b) => {
     if (a.status === "active" && b.status !== "active") return -1;
@@ -118,12 +121,18 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
         <Info label="وضعیت" value={STATUS_FA[d.status] ?? d.status} />
         <Info
           label={onBreak ? "استراحت" : "سطح فعلی"}
-          value={onBreak ? "—" : `${d.currentLevel.toLocaleString("fa")} · ${cur ? `${cur.sb.toLocaleString("fa")}/${cur.bb.toLocaleString("fa")}${cur.ante ? ` (آنته ${cur.ante.toLocaleString("fa")})` : ""}` : "—"}`}
+          value={onBreak ? "—" : `${playLevel.toLocaleString("fa")} · ${cur ? `${cur.sb.toLocaleString("fa")}/${cur.bb.toLocaleString("fa")}${cur.ante ? ` (آنته ${cur.ante.toLocaleString("fa")})` : ""}` : "—"}`}
         />
         {running && (
           <Info
-            label={next ? `سطح بعدی تا` : "آخرین سطح"}
-            value={next && d.levelEndsAt ? `${fmtCountdown(msLeft)} → ${next.sb.toLocaleString("fa")}/${next.bb.toLocaleString("fa")}` : "—"}
+            label={next ? "بعدی تا" : "آخرین سطح"}
+            value={
+              !next || !d.levelEndsAt
+                ? "—"
+                : next.isBreak
+                  ? `${fmtCountdown(msLeft)} → ☕ استراحت`
+                  : `${fmtCountdown(msLeft)} → ${next.sb.toLocaleString("fa")}/${next.bb.toLocaleString("fa")}`
+            }
           />
         )}
         {running && <Info label="باقی‌مانده" value={`${playersLeft.toLocaleString("fa")} از ${d.entries.length.toLocaleString("fa")}`} />}

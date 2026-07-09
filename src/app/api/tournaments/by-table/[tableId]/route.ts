@@ -1,6 +1,7 @@
 import { handler, json, requireSession } from "@/lib/api";
 import * as repo from "@/lib/repo";
 import { tournamentManager } from "@/server/tournamentManager";
+import { playableLevel } from "@/lib/tournament/types";
 
 // Live tournament summary for the table view (null if the table isn't one).
 export async function GET(_req: Request, { params }: { params: Promise<{ tableId: string }> }) {
@@ -27,7 +28,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ tableId
         id: t.id,
         name: t.name,
         status: t.status,
-        level: t.current_level,
+        level: playableLevel(t.blind_schedule, t.current_level), // playable level (breaks excluded)
         sb: level?.sb ?? t.blind_schedule[0]?.sb ?? 0,
         bb: level?.bb ?? t.blind_schedule[0]?.bb ?? 0,
         ante: level?.ante ?? 0,

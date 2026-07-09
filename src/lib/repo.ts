@@ -18,6 +18,7 @@ import type {
 import type { ProfileFields } from "./profile/presets";
 import type { TableConfig } from "./poker/types";
 import type { BlindLevel, TournamentConfig } from "./tournament/types";
+import { playableLevel } from "./tournament/types";
 
 // ---------------------------------------------------------------------------
 // Users
@@ -590,6 +591,15 @@ export async function listEntries(tournamentId: string): Promise<TournamentEntry
   );
 }
 
+/** Tournament ids the given user currently has an entry in (any status). */
+export async function getUserTournamentIds(userId: string): Promise<string[]> {
+  const rows = await query<{ tournament_id: string }>(
+    "SELECT tournament_id FROM tournament_entries WHERE user_id = $1",
+    [userId]
+  );
+  return rows.map((r) => r.tournament_id);
+}
+
 export async function getEntry(tournamentId: string, userId: string): Promise<TournamentEntryRow | null> {
   return one<TournamentEntryRow>(
     "SELECT * FROM tournament_entries WHERE tournament_id = $1 AND user_id = $2",
@@ -664,7 +674,8 @@ export async function lateRegisterEntry(
   userId: string,
   buyInChips: number,
   startingStack: number,
-  lateRegThroughLevel: number
+  lateRegThroughLevel: number,
+  blindSchedule: BlindLevel[]
 ): Promise<boolean> {
   if (!Number.isFinite(buyInChips) || buyInChips <= 0) throw new Error("مبلغ ورودی تورنومنت نامعتبر است");
   if (!Number.isFinite(startingStack) || startingStack <= 0) throw new Error("استک شروع نامعتبر است");
@@ -676,7 +687,10 @@ export async function lateRegisterEntry(
     if (trow.rowCount === 0) throw new Error("تورنومنت یافت نشد");
     const t = trow.rows[0];
     if (t.status !== "running") throw new Error("تورنومنت در حال اجرا نیست");
-    if (lateRegThroughLevel <= 0 || t.current_level > lateRegThroughLevel) {
+    // Compare in playable levels (breaks don't count) against the just-locked
+    // current_level, so the window can't close early nor be raced.
+    const playable = playableLevel(blindSchedule, t.current_level);
+    if (lateRegThroughLevel <= 0 || playable > lateRegThroughLevel) {
       throw new Error("مهلت ثبت‌نام با تأخیر به پایان رسیده است");
     }
     // Capacity is against players still in the field (registered/active).

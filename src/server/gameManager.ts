@@ -369,18 +369,27 @@ export class GameManager {
 
   /** Pause/resume dealing new hands (scheduled tournament breaks). The current
    *  hand, if any, finishes normally; only the *next* hand is gated. */
-  setPaused(tableId: string, paused: boolean): void {
-    const rt = this.tables.get(tableId);
+  async setPaused(tableId: string, paused: boolean): Promise<void> {
+    // Eagerly load so a pause request isn't silently dropped for an unloaded table.
+    const rt = await this.ensureLoaded(tableId).catch(() => this.tables.get(tableId));
     if (!rt) return;
     rt.paused = paused;
-    if (!paused) {
+    if (paused) {
+      // Cancel any queued next hand so a pending timer can't deal during the break.
+      if (rt.nextHandTimer) {
+        clearTimeout(rt.nextHandTimer);
+        rt.nextHandTimer = undefined;
+      }
+    } else {
       this.maybeStartHand(rt);
-      void this.broadcast(tableId);
     }
+    // Broadcast on both paths so clients see the break start and end symmetrically.
+    await this.broadcast(tableId);
   }
 
   private async startHand(rt: TableRuntime): Promise<void> {
     rt.nextHandTimer = undefined;
+    if (rt.paused) return; // a break may have begun after this hand was queued
     if (!rt.game.canStartHand()) return;
     rt.game.startHand();
     // Snapshot who was dealt into this hand (for per-player stats).

@@ -71,6 +71,20 @@ export function defaultBlindSchedule(
   return schedule;
 }
 
+/**
+ * The playable blind level at a given schedule position — breaks don't count.
+ * `current` is the 1-based array index (which includes break entries); this maps
+ * it to the number an admin/player thinks of (e.g. "level 4"), so break-inclusive
+ * numbering never shifts rebuy/late-reg thresholds or the displayed level.
+ */
+export function playableLevel(schedule: BlindLevel[], current: number): number {
+  let n = 0;
+  for (let i = 0; i < Math.min(current, schedule.length); i++) {
+    if (!schedule[i]?.isBreak) n++;
+  }
+  return n;
+}
+
 function niceRound(n: number): number {
   const mag = Math.pow(10, Math.floor(Math.log10(n)));
   return Math.max(2, Math.round(n / mag) * mag);

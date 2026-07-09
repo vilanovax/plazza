@@ -14,7 +14,7 @@ import type { TableConfig } from "../lib/poker/types";
 import type { TournamentRow } from "../lib/models";
 import { gameManager } from "./gameManager";
 import { InvalidActionError } from "../lib/poker/engine";
-import { validatePayouts } from "../lib/tournament/types";
+import { validatePayouts, playableLevel } from "../lib/tournament/types";
 
 const NEXT_LEVEL_GRACE_MS = 500;
 
@@ -129,26 +129,30 @@ export class TournamentManager {
       current_level: next,
       level_ends_at: new Date(Date.now() + level.minutes * 60_000).toISOString(),
     });
-    if (level.isBreak) {
+    const isTerminal = next >= t.blind_schedule.length;
+    if (level.isBreak && !isTerminal) {
       // Scheduled break: hold the blinds, pause new hands, and let the level
       // timer advance us to the next play level after `minutes`.
-      gameManager.setPaused(t.table_id, true);
+      await gameManager.setPaused(t.table_id, true);
       gameManager.logMessage(t.table_id, `استراحت — ${level.minutes.toLocaleString("fa")} دقیقه`);
     } else {
-      gameManager.setPaused(t.table_id, false); // resume if we were on a break
-      await gameManager.setBlinds(t.table_id, level.sb, level.bb, level.ante);
+      // A play level — or a (malformed) terminal break, which must NOT pause
+      // forever since no further level is scheduled: resume and keep prior blinds.
+      await gameManager.setPaused(t.table_id, false);
+      if (!level.isBreak) await gameManager.setBlinds(t.table_id, level.sb, level.bb, level.ante);
     }
 
     // If the rebuy period just closed, remove anyone still busted — but only if
     // no hand is live. Mid-hand an all-in player has stack 0 yet is still
     // contesting the pot; eliminating them would corrupt the pot and placement.
     // A live hand's next natural end runs onHandEnd anyway (rebuy is now closed).
-    if (next > t.config.rebuyThroughLevel) {
+    // Thresholds are in *playable* levels so breaks don't shift them.
+    if (playableLevel(t.blind_schedule, next) > t.config.rebuyThroughLevel) {
       const rt = gameManager.getRuntime(t.table_id);
       const handLive = !!rt && rt.game.phase !== "waiting" && rt.game.phase !== "hand_complete";
       if (!handLive) await this.onHandEnd(tournamentId, t.table_id, true);
     }
-    if (next < t.blind_schedule.length) this.scheduleLevel(tournamentId, level.minutes * 60_000);
+    if (!isTerminal) this.scheduleLevel(tournamentId, level.minutes * 60_000);
   }
 
   // --------------------------------------------------------------------------
@@ -158,7 +162,7 @@ export class TournamentManager {
     return (
       t.status === "running" &&
       t.config.rebuyAllowed &&
-      t.current_level <= t.config.rebuyThroughLevel &&
+      playableLevel(t.blind_schedule, t.current_level) <= t.config.rebuyThroughLevel &&
       (t.config.rebuyMaxCount < 0 || entryRebuys < t.config.rebuyMaxCount)
     );
   }
@@ -206,10 +210,11 @@ export class TournamentManager {
   // --------------------------------------------------------------------------
   // Late registration — join a running tournament within the late-reg window
   // --------------------------------------------------------------------------
-  /** True if a running tournament is still inside its late-registration window. */
+  /** True if a running tournament is still inside its late-registration window.
+   *  The window is measured in *playable* levels so breaks don't close it early. */
   lateRegOpen(t: TournamentRow): boolean {
     const through = t.config.lateRegThroughLevel ?? 0;
-    return t.status === "running" && through > 0 && t.current_level <= through;
+    return t.status === "running" && through > 0 && playableLevel(t.blind_schedule, t.current_level) <= through;
   }
 
   async lateRegister(tournamentId: string, userId: string): Promise<void> {
@@ -229,10 +234,24 @@ export class TournamentManager {
       if (!empty) throw new InvalidActionError("ظرفیت میز تکمیل است");
 
       const startingStack = Number(t.starting_stack);
-      // Atomic: debit + create the ACTIVE entry + grow the pool (throws on
-      // insufficient funds / closed window / full / duplicate → nothing seated).
-      await repo.lateRegisterEntry(tournamentId, userId, Number(t.buy_in_chips), startingStack, t.config.lateRegThroughLevel ?? 0);
+      // Seat the player first (in-memory + table_seats — reversible), THEN debit
+      // and create the entry atomically. If the charge fails (insufficient funds,
+      // window closed, duplicate) we roll the seat back, so a player is never
+      // charged without ending up seated.
       await gameManager.seatTournamentPlayer(t.table_id, empty.seatIndex, userId, user.display_name, startingStack);
+      try {
+        await repo.lateRegisterEntry(
+          tournamentId,
+          userId,
+          Number(t.buy_in_chips),
+          startingStack,
+          t.config.lateRegThroughLevel ?? 0,
+          t.blind_schedule
+        );
+      } catch (err) {
+        await gameManager.removeTournamentPlayer(t.table_id, userId, `${user.display_name} — ثبت‌نام ناموفق`).catch(() => {});
+        throw err;
+      }
       gameManager.logMessage(t.table_id, `${user.display_name} با ثبت‌نام با تأخیر وارد شد`);
       gameManager.startTable(t.table_id);
     } finally {

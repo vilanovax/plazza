@@ -4,14 +4,19 @@ import {
   defaultBlindSchedule,
   defaultPayouts,
   PAYOUT_PRESETS,
+  playableLevel,
   validatePayouts,
   type TournamentConfig,
 } from "@/lib/tournament/types";
 
 export async function GET() {
   return handler(async () => {
-    await requireSession();
-    const tournaments = await repo.listTournamentsWithCounts();
+    const session = await requireSession();
+    const [tournaments, myIds] = await Promise.all([
+      repo.listTournamentsWithCounts(),
+      repo.getUserTournamentIds(session.sub),
+    ]);
+    const registered = new Set(myIds);
     const withCounts = tournaments.map((t) => ({
       id: t.id,
       name: t.name,
@@ -27,7 +32,8 @@ export async function GET() {
       lateRegOpen:
         t.status === "running" &&
         (t.config.lateRegThroughLevel ?? 0) > 0 &&
-        t.current_level <= (t.config.lateRegThroughLevel ?? 0),
+        playableLevel(t.blind_schedule, t.current_level) <= (t.config.lateRegThroughLevel ?? 0),
+      registeredByMe: registered.has(t.id),
     }));
     return json({ tournaments: withCounts });
   });

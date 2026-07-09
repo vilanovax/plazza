@@ -106,7 +106,7 @@ export default function LobbyPage() {
 
 interface TournamentSummary {
   id: string; name: string; status: string; buyInChips: number; startingStack: number;
-  maxPlayers: number; registered: number; prizePool: number; payouts: number[]; lateRegOpen?: boolean;
+  maxPlayers: number; registered: number; prizePool: number; payouts: number[]; lateRegOpen?: boolean; registeredByMe?: boolean;
 }
 
 function TournamentsSection({ isAdmin, onBalanceChange }: { isAdmin: boolean; onBalanceChange: () => void }) {
@@ -146,7 +146,7 @@ function TournamentsSection({ isAdmin, onBalanceChange }: { isAdmin: boolean; on
             </div>
             <div style={{ display: "flex", gap: 6 }}>
               {t.status === "scheduled" && <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>ثبت‌نام</button>}
-              {t.status === "running" && t.lateRegOpen && <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>ثبت‌نام با تأخیر</button>}
+              {t.status === "running" && t.lateRegOpen && !t.registeredByMe && <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>ثبت‌نام با تأخیر</button>}
               {t.status === "scheduled" && isAdmin && <button className="btn btn-gold" style={{ fontSize: 12 }} onClick={() => start(t.id)}>شروع</button>}
               {t.status === "running" && <Link href={`/tournament/${t.id}`} className="btn btn-ghost" style={{ fontSize: 12 }}>مشاهده</Link>}
             </div>
