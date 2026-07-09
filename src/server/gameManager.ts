@@ -39,6 +39,8 @@ interface TableRuntime {
   isTournament: boolean;
   /** When true, no new hands are dealt (e.g. a scheduled tournament break). */
   paused?: boolean;
+  /** Cached cosmetic profiles for seated players (attached to broadcasts). */
+  profiles: Map<string, { avatar: string; title: string; tagline: string; chipColor: string; cardBack: string }>;
 }
 
 const LOG_CAP = 60;
@@ -92,8 +94,11 @@ export class GameManager {
         logSeq: 0,
         sitOutTimers: new Map(),
         isTournament: row.tournament_id != null,
+        profiles: new Map(),
       };
       this.tables.set(tableId, rt);
+      // Warm the cosmetic-profile cache for everyone already seated.
+      for (const s of seats) if (s.user_id) await this.cacheProfile(rt, s.user_id);
       return rt;
     })();
 
@@ -143,6 +148,7 @@ export class GameManager {
       throw err;
     }
     await repo.upsertSeat(tableId, seatIndex, userId, buyIn, buyIn);
+    await this.cacheProfile(rt, userId);
 
     this.pushLog(rt, `${user.display_name} با ${buyIn.toLocaleString("fa")} ژتون به میز اضافه شد`);
     this.maybeStartHand(rt);
@@ -534,6 +540,7 @@ export class GameManager {
     rt.isTournament = true;
     rt.game.sit(seatIndex, userId, name, stack);
     await repo.upsertSeat(tableId, seatIndex, userId, stack, stack);
+    await this.cacheProfile(rt, userId);
     this.pushLog(rt, `${name} وارد تورنومنت شد`);
   }
 
@@ -601,6 +608,28 @@ export class GameManager {
     await this.broadcast(tableId);
   }
 
+  /** Refresh a player's cached cosmetic profile at a table (e.g. after editing). */
+  async refreshProfile(tableId: string, userId: string): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (rt) await this.cacheProfile(rt, userId);
+  }
+
+  /** Fetch + cache a player's cosmetic profile for table display (best-effort). */
+  private async cacheProfile(rt: TableRuntime, userId: string): Promise<void> {
+    try {
+      const p = await repo.getProfile(userId);
+      rt.profiles.set(userId, {
+        avatar: p?.avatar ?? "",
+        title: p?.title ?? "",
+        tagline: p?.tagline ?? "",
+        chipColor: p?.chip_color ?? "",
+        cardBack: p?.card_back ?? "",
+      });
+    } catch {
+      /* cosmetic only — ignore */
+    }
+  }
+
   async broadcast(tableId: string): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt || !this.io) return;
@@ -609,6 +638,18 @@ export class GameManager {
       const uid = (s.data as { userId?: string }).userId ?? null;
       const ps = rt.game.publicState(uid);
       ps.log = rt.log;
+      // Attach each seated player's cosmetic profile, and the viewer's card-back.
+      for (const seat of ps.seats) {
+        if (!seat.userId) continue;
+        const p = rt.profiles.get(seat.userId);
+        if (p) {
+          seat.avatar = p.avatar;
+          seat.title = p.title;
+          seat.tagline = p.tagline;
+          seat.chipColor = p.chipColor;
+        }
+      }
+      if (uid) ps.myCardBack = rt.profiles.get(uid)?.cardBack ?? "";
       s.emit("state", ps);
     }
   }

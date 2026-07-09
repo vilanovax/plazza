@@ -79,8 +79,11 @@ export function useTableSounds(state: PublicGameState | null, viewerSeat: number
     const la = state.lastAction;
     const actKey = la ? `${state.handNo}:${la.seatIndex}:${la.type}:${la.amount}` : "";
     if (actKey && actKey !== p.action) {
-      if (la && la.type === "allin") {
-        sound.allin(); // dramatic — plays for everyone at the table, including the actor
+      // Any action that leaves the actor all-in gets the dramatic sound — a
+      // call/bet/raise that empties the stack has its raw type, not "allin".
+      const wentAllIn = !!la && (la.type === "allin" || state.seats[la.seatIndex]?.status === "allin");
+      if (wentAllIn) {
+        sound.allin(); // plays for everyone at the table, including the actor
       } else if (la && la.seatIndex !== viewerSeat) {
         if (la.type === "fold") sound.fold();
         else if (la.type === "check") sound.check();

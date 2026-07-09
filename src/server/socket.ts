@@ -49,6 +49,8 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         data.tableId = tableId;
         socket.join(`table:${tableId}`);
         gameManager.setConnected(tableId, data.userId, true);
+        // Pick up the joining player's latest cosmetic profile edits.
+        await gameManager.refreshProfile(tableId, data.userId);
         await gameManager.broadcast(tableId);
       } catch (err) {
         fail(socket, err);
@@ -151,9 +153,13 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       }
     });
 
-    socket.on("chat", async ({ tableId, text }: { tableId: string; text: string }) => {
+    socket.on("chat", async (payload: { tableId?: string; text?: unknown } | null) => {
       try {
+        const tableId = payload?.tableId;
+        const text = payload?.text;
         if (typeof text !== "string") throw new InvalidActionError("پیام نامعتبر است");
+        // Only players who have joined THIS table may post to its feed.
+        if (!tableId || data.tableId !== tableId) throw new InvalidActionError("ابتدا به میز بپیوندید");
         // Throttle to keep the feed usable: 5 messages per 5 seconds per user.
         const gate = rateLimit(`chat:${data.userId}`, 5, 5000);
         if (!gate.ok) throw new InvalidActionError("پیام‌های زیاد؛ کمی صبر کنید");

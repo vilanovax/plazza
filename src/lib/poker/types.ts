@@ -141,9 +141,19 @@ export interface GameState {
   showOfferUntil?: number;
 }
 
+/** Cosmetic profile bits shown at the table (attached by the game manager). */
+export interface SeatProfile {
+  avatar?: string;
+  title?: string;
+  tagline?: string;
+  chipColor?: string;
+}
+
 /** Sanitised state broadcast to a specific viewer (their own cards only). */
 export interface PublicGameState extends Omit<GameState, "seats"> {
-  seats: Array<Omit<SeatState, "holeCards"> & { holeCards?: Card[]; hasCards: boolean }>;
+  seats: Array<Omit<SeatState, "holeCards"> & { holeCards?: Card[]; hasCards: boolean } & SeatProfile>;
+  /** The viewing player's own card-back theme (for their hidden cards). */
+  myCardBack?: string;
   viewerSeat: number | null;
   /** Recent table events (attached by the game manager on broadcast). */
   log?: LogEntry[];

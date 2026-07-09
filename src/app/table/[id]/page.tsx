@@ -54,8 +54,11 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
     if (next.has(uid)) next.delete(uid); else next.add(uid);
     return next;
   }), []);
+  // The player's own pinned quick-emotes (sent as chat with one tap).
+  const [myEmotes, setMyEmotes] = useState<string[]>([]);
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
+  useEffect(() => { api<{ profile: { emotes: string[] } }>("/api/profile").then((d) => setMyEmotes(d.profile.emotes)).catch(() => {}); }, []);
 
   // Poll the tournament summary (if this table belongs to one).
   const loadTourney = useCallback(() => {
@@ -196,6 +199,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
                   isButton={isButton}
                   community={state?.community ?? []}
                   deadline={isTurn ? state?.actionDeadline : undefined}
+                  showdown={state?.phase === "hand_complete"}
                   onSelect={() => seat!.userId && setStatsFor({ userId: seat!.userId, name: seat!.name ?? "بازیکن", seatIndex: i })}
                 />
               ) : (
@@ -246,6 +250,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           myId={me?.id ?? null}
           muteAll={muteAll}
           mutedUsers={mutedUsers}
+          emotes={myEmotes}
           onToggleMuteAll={() => setMuteAll((m) => !m)}
           onToggleMuteUser={toggleMuteUser}
           onSend={(text) => chat(text)}
@@ -279,8 +284,8 @@ function seatPosition(index: number, viewerSeat: number | null, n: number) {
   return { x: 50 + 44 * Math.cos(theta), y: 50 + 43 * Math.sin(theta) };
 }
 
-function SeatView({ seat, isTurn, isButton, community, deadline, onSelect }: {
-  seat: SeatVM; isTurn: boolean; isButton: boolean; community: Card[]; deadline?: number; onSelect?: () => void;
+function SeatView({ seat, isTurn, isButton, community, deadline, showdown, onSelect }: {
+  seat: SeatVM; isTurn: boolean; isButton: boolean; community: Card[]; deadline?: number; showdown?: boolean; onSelect?: () => void;
 }) {
   const folded = seat.status === "folded";
   // Show the current best hand for any cards we can actually see (the viewer's
@@ -306,6 +311,9 @@ function SeatView({ seat, isTurn, isButton, community, deadline, onSelect }: {
           {handName}
         </div>
       )}
+      {showdown && seat.holeCards?.length && seat.tagline ? (
+        <div style={{ fontSize: 9, fontStyle: "italic", color: "var(--muted)", marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>“{seat.tagline}”</div>
+      ) : null}
       <div style={{ display: "flex", justifyContent: "center", gap: 3, marginBottom: 3, minHeight: 48 }}>
         {seat.holeCards?.length ? seat.holeCards.map((c, i) => <PlayingCard key={i} card={c} small />) :
           seat.hasCards ? [0, 1].map((i) => <PlayingCard key={i} small hidden />) : null}
@@ -315,9 +323,12 @@ function SeatView({ seat, isTurn, isButton, community, deadline, onSelect }: {
         boxShadow: isTurn ? "0 0 0 2px var(--gold)" : undefined, position: "relative",
       }}>
         <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {isButton ? "🅑 " : ""}{seat.name}{!seat.isConnected ? " ⚠" : ""}
+          {isButton ? "🅑 " : ""}{seat.avatar ? `${seat.avatar} ` : ""}{seat.name}{!seat.isConnected ? " ⚠" : ""}
         </div>
-        <div style={{ fontSize: 12, color: "var(--accent)" }}>{seat.stack.toLocaleString("fa")}</div>
+        {seat.title && (
+          <div style={{ fontSize: 9, color: "var(--gold)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>«{seat.title}»</div>
+        )}
+        <div style={{ fontSize: 12, color: seat.chipColor || "var(--accent)" }}>{seat.stack.toLocaleString("fa")}</div>
         {seat.status === "allin" && <div style={{ fontSize: 10, color: "var(--danger)" }}>آل‌این</div>}
         {seat.sitOut && <div style={{ fontSize: 10, color: "var(--muted)" }}>سیت‌اوت</div>}
         {isTurn && deadline && <Countdown deadline={deadline} />}
@@ -341,11 +352,12 @@ function Countdown({ deadline }: { deadline: number }) {
   return <div style={{ position: "absolute", top: -6, left: -6, background: "var(--gold)", color: "#2a1e00", borderRadius: 10, fontSize: 11, fontWeight: 800, padding: "1px 6px" }}>{left ?? "•"}</div>;
 }
 
-function ChatPanel({ log, myId, muteAll, mutedUsers, onToggleMuteAll, onToggleMuteUser, onSend }: {
+function ChatPanel({ log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, onToggleMuteUser, onSend }: {
   log: LogEntry[];
   myId: string | null;
   muteAll: boolean;
   mutedUsers: Set<string>;
+  emotes: string[];
   onToggleMuteAll: () => void;
   onToggleMuteUser: (uid: string) => void;
   onSend: (text: string) => void;
@@ -363,10 +375,13 @@ function ChatPanel({ log, myId, muteAll, mutedUsers, onToggleMuteAll, onToggleMu
     return !mutedUsers.has(uid);
   });
   const recent = visible.slice(-40);
+  const lastEntryId = recent[recent.length - 1]?.id;
 
   useEffect(() => {
+    // Key on the last entry's id, not length — once the window caps at 40 the
+    // length stops changing but new messages still arrive.
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [recent.length]);
+  }, [lastEntryId]);
 
   function send(t: string) {
     const msg = t.trim();
@@ -415,6 +430,13 @@ function ChatPanel({ log, myId, muteAll, mutedUsers, onToggleMuteAll, onToggleMu
         <div style={{ display: "flex", flexWrap: "wrap", gap: 4, margin: "6px 0" }}>
           {QUICK_CHAT.map((q) => (
             <button key={q} onClick={() => send(q)} className="btn btn-ghost" style={{ fontSize: 11, padding: "0.15rem 0.5rem" }}>{q}</button>
+          ))}
+        </div>
+      )}
+      {emotes.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, margin: "6px 0" }}>
+          {emotes.map((e) => (
+            <button key={e} onClick={() => onSend(e)} style={{ fontSize: 18, padding: "0.1rem 0.35rem", borderRadius: 8, cursor: "pointer", border: "1px solid var(--border,#3334)", background: "transparent" }}>{e}</button>
           ))}
         </div>
       )}
