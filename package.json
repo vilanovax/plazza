@@ -2,7 +2,6 @@
   "name": "poker-pwa",
   "version": "0.1.0",
   "private": true,
-  "type": "module",
   "scripts": {
     "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --outfile=.server/server.cjs --packages=external",
     "dev": "npm run build:server && node .server/server.cjs",
