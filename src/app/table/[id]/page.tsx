@@ -1,5 +1,5 @@
 "use client";
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTableSocket } from "@/components/useTableSocket";
@@ -8,6 +8,9 @@ import { DealerAvatar } from "@/components/DealerAvatar";
 import { PlayingCard } from "@/components/PlayingCard";
 import { api, fetchMe, type Me } from "@/lib/client/api";
 import type { PublicGameState, PlayerAction, TableConfig } from "@/lib/poker/types";
+
+type PreAction = "fold" | "check_fold" | "check";
+const BETTING_PHASES = new Set(["preflop", "flop", "turn", "river"]);
 import { evaluate, CATEGORY_NAMES_FA } from "@/lib/poker/evaluator";
 import type { Card } from "@/lib/poker/cards";
 
@@ -33,6 +36,8 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [statsFor, setStatsFor] = useState<{ userId: string; name: string } | null>(null);
+  // Pre-selected action to auto-run when it becomes the player's turn.
+  const [preAction, setPreAction] = useState<{ type: PreAction; handNo: number } | null>(null);
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
 
@@ -40,6 +45,38 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   const viewerSeat = state?.viewerSeat ?? null;
   const mySeat = viewerSeat != null ? state?.seats[viewerSeat] : undefined;
   const { muted, toggleMute } = useTableSounds(state, viewerSeat);
+
+  const clearPre = useCallback(() => setPreAction(null), []);
+  const selectPre = useCallback(
+    (t: PreAction) => setPreAction((cur) => (cur?.type === t ? null : { type: t, handNo: state?.handNo ?? 0 })),
+    [state?.handNo]
+  );
+
+  // Execute (or invalidate) a pre-selected action as the game state changes.
+  // Clearing the one-shot selection here (a reaction to the live game-state
+  // stream) is intentional, so the set-state-in-effect rule is disabled.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!state || viewerSeat == null || !preAction) return;
+    // A pre-action only applies to the hand it was chosen in.
+    if (preAction.handNo !== state.handNo) return clearPre();
+    const seat = state.seats[viewerSeat];
+    const betting = BETTING_PHASES.has(state.phase);
+    if (!seat || seat.status !== "active" || !betting) return clearPre();
+
+    const toCall = state.currentBet - seat.betThisRound;
+    if (state.currentTurnSeat === viewerSeat) {
+      // Our turn — run the pre-selected decision.
+      if (preAction.type === "fold") act({ type: "fold" });
+      else if (preAction.type === "check_fold") act(toCall > 0 ? { type: "fold" } : { type: "check" });
+      else if (preAction.type === "check" && toCall <= 0) act({ type: "check" });
+      clearPre();
+    } else if (preAction.type === "check" && toCall > 0) {
+      // Someone bet before our turn — "check" is no longer possible, so cancel.
+      clearPre();
+    }
+  }, [state, viewerSeat, preAction, act, clearPre]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   return (
     <main style={{ maxWidth: 760, margin: "0 auto", padding: 12, minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
@@ -133,7 +170,15 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
 
       {/* Controls */}
       {mySeat ? (
-        <ActionBar state={state!} mySeat={mySeat} act={act} topup={topup} leaveSeat={leaveSeat} />
+        <ActionBar
+          state={state!}
+          mySeat={mySeat}
+          act={act}
+          topup={topup}
+          leaveSeat={leaveSeat}
+          preAction={preAction?.type ?? null}
+          onPreAction={selectPre}
+        />
       ) : (
         <div className="panel" style={{ padding: 12, textAlign: "center", color: "var(--muted)" }}>
           برای بازی روی یک صندلی خالی بزنید و بنشینید.
@@ -221,9 +266,10 @@ function Countdown({ deadline }: { deadline: number }) {
   return <div style={{ position: "absolute", top: -6, left: -6, background: "var(--gold)", color: "#2a1e00", borderRadius: 10, fontSize: 11, fontWeight: 800, padding: "1px 6px" }}>{left ?? "•"}</div>;
 }
 
-function ActionBar({ state, mySeat, act, topup, leaveSeat }: {
+function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreAction }: {
   state: PublicGameState; mySeat: SeatVM;
   act: (a: PlayerAction) => void; topup: (n: number) => void; leaveSeat: () => void;
+  preAction: PreAction | null; onPreAction: (t: PreAction) => void;
 }) {
   const myTurn = state.currentTurnSeat === mySeat.seatIndex && ["preflop", "flop", "turn", "river"].includes(state.phase);
   const toCall = Math.max(0, state.currentBet - mySeat.betThisRound);
@@ -270,15 +316,27 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat }: {
           )}
         </>
       ) : (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-          <div style={{ color: "var(--muted)", fontSize: 13 }}>
-            موجودی میز: <b style={{ color: "var(--accent)" }}>{mySeat.stack.toLocaleString("fa")}</b>
-          </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            {state.config.allowTopUp && (
-              <button className="btn btn-gold" style={{ fontSize: 13 }} onClick={() => setShowTopup((s) => !s)}>+ تاپ‌آپ</button>
-            )}
-            <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={leaveSeat}>خروج از میز</button>
+        <div>
+          {mySeat.status === "active" && ["preflop", "flop", "turn", "river"].includes(state.phase) && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ color: "var(--muted)", fontSize: 11, marginBottom: 4 }}>اقدام از پیش (وقتی نوبتت شد خودکار اجرا می‌شود)</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className={`btn ${preAction === "fold" ? "btn-danger" : "btn-ghost"}`} style={{ flex: 1, fontSize: 13 }} onClick={() => onPreAction("fold")}>فولد خودکار</button>
+                <button className={`btn ${preAction === "check_fold" ? "btn-gold" : "btn-ghost"}`} style={{ flex: 1, fontSize: 13 }} onClick={() => onPreAction("check_fold")}>چک/فولد</button>
+                <button className={`btn ${preAction === "check" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1, fontSize: 13 }} onClick={() => onPreAction("check")}>چک</button>
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
+            <div style={{ color: "var(--muted)", fontSize: 13 }}>
+              موجودی میز: <b style={{ color: "var(--accent)" }}>{mySeat.stack.toLocaleString("fa")}</b>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {state.config.allowTopUp && (
+                <button className="btn btn-gold" style={{ fontSize: 13 }} onClick={() => setShowTopup((s) => !s)}>+ تاپ‌آپ</button>
+              )}
+              <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={leaveSeat}>خروج از میز</button>
+            </div>
           </div>
         </div>
       )}
