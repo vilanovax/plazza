@@ -2,7 +2,9 @@ import { handler, error, json, requireAdmin } from "@/lib/api";
 import * as repo from "@/lib/repo";
 import { gameManager } from "@/server/gameManager";
 
-// Approve → apply the chips to the player's table stack, then mark approved.
+// Approve → atomically claim the pending request FIRST (so it can only be
+// applied once), then push the chips to the player's table stack; on failure
+// the claim is reverted back to pending.
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   return handler(async () => {
     const admin = await requireAdmin();

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTableSocket } from "@/components/useTableSocket";
 import { useTableSounds } from "@/components/useTableSounds";
+import { DealerAvatar } from "@/components/DealerAvatar";
 import { PlayingCard } from "@/components/PlayingCard";
 import { fetchMe, type Me } from "@/lib/client/api";
 import type { PublicGameState, PlayerAction, TableConfig } from "@/lib/poker/types";
@@ -69,6 +70,10 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           background: "radial-gradient(120% 120% at 50% 30%, var(--felt-2), var(--felt) 60%, #06281d)",
           border: "8px solid #5b3b1e", boxShadow: "inset 0 0 60px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.4)",
         }} />
+        {/* Dealer avatar in the felt interior, above the community cards */}
+        <div style={{ position: "absolute", top: "20%", left: "50%", transform: "translateX(-50%)", zIndex: 2 }}>
+          <DealerAvatar size={56} />
+        </div>
         {/* Center: pot + community */}
         <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
           <div style={{ color: "var(--gold)", fontWeight: 800 }}>پات: {(state?.pot ?? 0).toLocaleString("fa")}</div>

@@ -178,14 +178,20 @@ export class GameManager {
     if (rt.actionTimer) clearTimeout(rt.actionTimer);
     if (rt.nextHandTimer) clearTimeout(rt.nextHandTimer);
 
+    // Cash out each player atomically (ledger credit + seat removal in one
+    // transaction). If any DB op fails we let it propagate WITHOUT deleting the
+    // runtime, so no chips are ever silently lost and the admin can retry.
     for (const seat of rt.game.seats) {
-      if (seat.userId) {
-        const chips = rt.game.leave(seat.seatIndex);
+      if (!seat.userId) continue;
+      const userId = seat.userId;
+      const chips = seat.stack;
+      await tx(async (client) => {
         if (chips > 0) {
-          await repo.applyLedger({ userId: seat.userId, type: "cash_out", amount: chips, tableId, note: "بسته‌شدن میز" }).catch(() => {});
+          await repo.applyLedgerTx(client, { userId, type: "cash_out", amount: chips, tableId, note: "بسته‌شدن میز" });
         }
-        await repo.removeSeat(tableId, seat.seatIndex).catch(() => {});
-      }
+        await client.query("DELETE FROM table_seats WHERE table_id = $1 AND seat_index = $2", [tableId, seat.seatIndex]);
+      });
+      rt.game.leave(seat.seatIndex); // only mutate in-memory once the DB commit succeeded
     }
     await this.broadcast(tableId);
     this.tables.delete(tableId);

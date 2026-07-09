@@ -1,28 +1,33 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import type { PublicGameState } from "@/lib/poker/types";
-import { sound } from "@/lib/client/sounds";
+import {
+  sound,
+  subscribeMuted,
+  getMutedSnapshot,
+  getMutedServerSnapshot,
+  setMutedPref,
+} from "@/lib/client/sounds";
 
 const BETTING = new Set(["preflop", "flop", "turn", "river"]);
-const MUTE_KEY = "poker_muted";
 
 /**
  * Drives all table sounds from game-state transitions:
  *  - your turn, new hand (shuffle), each dealt street, chips/check/fold for
  *    other players, a win fanfare, and a ticking warning in the last 30% of
  *    the think timer. Returns a mute toggle persisted to localStorage.
+ *
+ * The very first state received (page load / reconnect) only seeds the
+ * baseline — it never plays sounds for events that already happened.
  */
 export function useTableSounds(state: PublicGameState | null, viewerSeat: number | null) {
-  const [muted, setMuted] = useState<boolean>(() => {
-    try {
-      return typeof localStorage !== "undefined" && localStorage.getItem(MUTE_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
-  const prev = useRef({ handNo: 0, community: 0, turn: null as number | null, action: "", phase: "" });
+  // Read the mute preference without any hydration mismatch (server = false).
+  const muted = useSyncExternalStore(subscribeMuted, getMutedSnapshot, getMutedServerSnapshot);
 
-  // Apply the restored preference + unlock audio on the first user gesture.
+  const prev = useRef({ handNo: 0, community: 0, turn: null as number | null, action: "", phase: "" });
+  const seeded = useRef(false);
+
+  // Keep the audio engine's mute flag in sync + unlock on the first gesture.
   useEffect(() => {
     sound.setMuted(muted);
     const unlock = () => sound.ensure();
@@ -32,28 +37,31 @@ export function useTableSounds(state: PublicGameState | null, viewerSeat: number
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
     };
-    // Only run once on mount; toggleMute keeps sound + state in sync afterwards.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [muted]);
 
   const toggleMute = useCallback(() => {
-    setMuted((m) => {
-      const next = !m;
-      sound.setMuted(next);
-      try {
-        localStorage.setItem(MUTE_KEY, next ? "1" : "0");
-      } catch {
-        /* ignore */
-      }
-      if (!next) sound.ensure();
-      return next;
-    });
+    const next = !getMutedSnapshot();
+    setMutedPref(next);
+    if (!next) sound.ensure();
   }, []);
 
   // Event-driven sounds.
   useEffect(() => {
     if (!state) return;
     const p = prev.current;
+
+    // First state after (re)connect: seed the baseline silently.
+    if (!seeded.current) {
+      seeded.current = true;
+      p.handNo = state.handNo;
+      p.community = state.community.length;
+      p.turn = state.currentTurnSeat;
+      p.phase = state.phase;
+      p.action = state.lastAction
+        ? `${state.handNo}:${state.lastAction.seatIndex}:${state.lastAction.type}:${state.lastAction.amount}`
+        : "";
+      return;
+    }
 
     if (state.handNo > p.handNo) {
       sound.newHand();
