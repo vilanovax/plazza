@@ -124,16 +124,19 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       try {
         const amt = Math.floor(amount);
         if (amt <= 0) throw new InvalidActionError("مبلغ نامعتبر است");
-        // Tournaments never take bank-funded top-ups (only rebuy). Guard here too:
-        // the "queue for admin" branch below bypasses gameManager.topUp's guard.
-        if (gameManager.getRuntime(tableId)?.isTournament) {
-          throw new InvalidActionError("در تورنومنت فقط ری‌بای ممکن است");
-        }
+        // Load the runtime ONCE up front and reuse it for both the tournament
+        // guard and the seat lookup. Reading getRuntime() twice around an await
+        // is a TOCTOU hole: an unloaded table skips the guard, then a concurrent
+        // load makes the seat appear and the "queue for admin" branch (which has
+        // no tournament check) would enqueue an illegal top-up.
+        const rt = await gameManager.ensureLoaded(tableId);
+        // Tournaments never take bank-funded top-ups (only rebuy).
+        if (rt.isTournament) throw new InvalidActionError("در تورنومنت فقط ری‌بای ممکن است");
         const settings = await repo.getSettings();
         if (amt < settings.topup_min || amt > settings.topup_max) {
           throw new InvalidActionError(`مبلغ باید بین ${settings.topup_min} و ${settings.topup_max} باشد`);
         }
-        const seat = gameManager.getRuntime(tableId)?.game.seats.find((s) => s.userId === data.userId);
+        const seat = rt.game.seats.find((s) => s.userId === data.userId);
         if (!seat) throw new InvalidActionError("شما سر این میز نیستید");
         if (settings.allow_self_topup) {
           await gameManager.topUp(tableId, data.userId, amt);
