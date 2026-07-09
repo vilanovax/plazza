@@ -14,6 +14,7 @@ import type { TableConfig } from "../lib/poker/types";
 import type { TournamentRow } from "../lib/models";
 import { gameManager } from "./gameManager";
 import { InvalidActionError } from "../lib/poker/engine";
+import { validatePayouts } from "../lib/tournament/types";
 
 const NEXT_LEVEL_GRACE_MS = 500;
 
@@ -21,6 +22,7 @@ export class TournamentManager {
   private levelTimers = new Map<string, NodeJS.Timeout>();
   private tableToTournament = new Map<string, string>();
   private processing = new Set<string>();
+  private rebuying = new Set<string>();
 
   init(): void {
     // Route table hand-end events to the owning tournament (if any).
@@ -31,6 +33,9 @@ export class TournamentManager {
   }
 
   private levelOf(t: TournamentRow, level: number) {
+    if (!Array.isArray(t.blind_schedule) || t.blind_schedule.length === 0) {
+      throw new InvalidActionError("جدول بلایند تورنومنت نامعتبر است");
+    }
     const idx = Math.min(Math.max(1, level), t.blind_schedule.length) - 1;
     return t.blind_schedule[idx];
   }
@@ -44,6 +49,8 @@ export class TournamentManager {
     if (t.status !== "scheduled") throw new InvalidActionError("تورنومنت قابل شروع نیست");
     const entries = (await repo.listEntries(tournamentId)).filter((e) => e.status === "registered");
     if (entries.length < 2) throw new InvalidActionError("حداقل دو شرکت‌کننده لازم است");
+    const maxSeats = Math.min(9, Math.max(2, t.max_players));
+    if (entries.length > maxSeats) throw new InvalidActionError("تعداد شرکت‌کنندگان بیش از ظرفیت میز است");
 
     const l1 = this.levelOf(t, 1);
     const settings = await repo.getSettings();
@@ -120,9 +127,14 @@ export class TournamentManager {
     });
     await gameManager.setBlinds(t.table_id, level.sb, level.bb, level.ante);
 
-    // If the rebuy period just closed, remove anyone still busted.
+    // If the rebuy period just closed, remove anyone still busted — but only if
+    // no hand is live. Mid-hand an all-in player has stack 0 yet is still
+    // contesting the pot; eliminating them would corrupt the pot and placement.
+    // A live hand's next natural end runs onHandEnd anyway (rebuy is now closed).
     if (next > t.config.rebuyThroughLevel) {
-      await this.onHandEnd(tournamentId, t.table_id, true);
+      const rt = gameManager.getRuntime(t.table_id);
+      const handLive = !!rt && rt.game.phase !== "waiting" && rt.game.phase !== "hand_complete";
+      if (!handLive) await this.onHandEnd(tournamentId, t.table_id, true);
     }
     if (next < t.blind_schedule.length) this.scheduleLevel(tournamentId, level.minutes * 60_000);
   }
@@ -146,20 +158,35 @@ export class TournamentManager {
   }
 
   async rebuy(tournamentId: string, userId: string): Promise<void> {
-    const t = await repo.getTournament(tournamentId);
-    if (!t || !t.table_id) throw new InvalidActionError("تورنومنت فعال نیست");
-    const entry = await repo.getEntry(tournamentId, userId);
-    if (!entry || entry.status !== "active") throw new InvalidActionError("شما در این تورنومنت فعال نیستید");
-    if (!this.canRebuy(t, entry.rebuys)) throw new InvalidActionError("امکان ری‌بای وجود ندارد");
-    const rt = gameManager.getRuntime(t.table_id);
-    const seat = rt?.game.seats.find((s) => s.userId === userId);
-    if (!seat || seat.stack > 0) throw new InvalidActionError("فقط پس از حذف شدن ژتون‌ها می‌توانید ری‌بای کنید");
+    // Serialise concurrent rebuy attempts by the same player so a double-click
+    // can't charge the buy-in (and add chips) twice.
+    const key = `${tournamentId}:${userId}`;
+    if (this.rebuying.has(key)) throw new InvalidActionError("درخواست ری‌بای در حال پردازش است");
+    this.rebuying.add(key);
+    try {
+      const t = await repo.getTournament(tournamentId);
+      if (!t || !t.table_id) throw new InvalidActionError("تورنومنت فعال نیست");
+      const entry = await repo.getEntry(tournamentId, userId);
+      if (!entry || entry.status !== "active") throw new InvalidActionError("شما در این تورنومنت فعال نیستید");
+      if (!this.canRebuy(t, entry.rebuys)) throw new InvalidActionError("امکان ری‌بای وجود ندارد");
+      const rt = gameManager.getRuntime(t.table_id);
+      const seat = rt?.game.seats.find((s) => s.userId === userId);
+      if (!seat || seat.stack > 0) throw new InvalidActionError("فقط پس از حذف شدن ژتون‌ها می‌توانید ری‌بای کنید");
+      // Never charge a buy-in we can't immediately credit: an all-in player has
+      // stack 0 but is still in a live hand, where addChips() (correctly) refuses
+      // the top-up. Require the hand to be settled first.
+      if (rt && rt.game.phase !== "waiting" && rt.game.phase !== "hand_complete") {
+        throw new InvalidActionError("تا پایان دست فعلی نمی‌توان ری‌بای کرد");
+      }
 
-    await repo.buyIntoTournament(tournamentId, userId, t.buy_in_chips, true);
-    gameManager.addTournamentChips(t.table_id, userId, t.starting_stack);
-    await repo.setEntry(tournamentId, userId, { chips: t.starting_stack });
-    gameManager.logMessage(t.table_id, `${seat.name ?? "بازیکن"} ری‌بای کرد`);
-    gameManager.startTable(t.table_id);
+      await repo.buyIntoTournament(tournamentId, userId, t.buy_in_chips, true);
+      await gameManager.addTournamentChips(t.table_id, userId, t.starting_stack);
+      await repo.setEntry(tournamentId, userId, { chips: t.starting_stack });
+      gameManager.logMessage(t.table_id, `${seat.name ?? "بازیکن"} ری‌بای کرد`);
+      gameManager.startTable(t.table_id);
+    } finally {
+      this.rebuying.delete(key);
+    }
   }
 
   // --------------------------------------------------------------------------
@@ -181,13 +208,18 @@ export class TournamentManager {
       const busted = active
         .map((e) => {
           const seat = seated.find((s) => s.userId === e.user_id);
-          return { e, seat, stack: seat ? seat.stack : 0, committed: seat?.committedThisHand ?? 0 };
+          // Chips the player brought into the hand — falls back to what they
+          // committed (a busted all-in player has committed their whole stack).
+          const startStack = seat?.stackAtHandStart ?? seat?.committedThisHand ?? 0;
+          return { e, seat, stack: seat ? seat.stack : 0, startStack };
         })
         .filter((b) => b.stack <= 0);
 
       // During the rebuy period, keep re-buyable players (unless forced).
       const eliminate = busted.filter((b) => force || !this.canRebuy(t, b.e.rebuys));
-      eliminate.sort((a, b) => a.committed - b.committed); // shortest stack busts to the worst place
+      // Players who bust in the SAME hand are ranked by the stack they started
+      // the hand with: the shorter stack takes the worse (higher-numbered) place.
+      eliminate.sort((a, b) => a.startStack - b.startStack);
 
       let remaining = active.length;
       for (const b of eliminate) {
@@ -208,12 +240,17 @@ export class TournamentManager {
   private async finish(tournamentId: string, tableId: string, winnerUserId?: string): Promise<void> {
     const t = await repo.getTournament(tournamentId);
     if (!t || t.status !== "running") return;
+    // Atomically claim the payout phase (running -> finishing). If another call
+    // already claimed it, bail out so the prize pool can't be paid out twice.
+    if (!(await repo.claimTournamentFinish(tournamentId))) return;
     if (winnerUserId) await repo.setEntry(tournamentId, winnerUserId, { place: 1, status: "active" });
 
     const entries = await repo.listEntries(tournamentId);
     const byPlace = entries.filter((e) => e.place != null).sort((a, b) => (a.place as number) - (b.place as number));
     const pool = t.prize_pool;
-    const payouts = t.config.payouts;
+    // Fall back to winner-takes-all if a bad payout config ever slipped through,
+    // rather than skipping payouts and stranding the pool.
+    const payouts = validatePayouts(t.config.payouts) ? t.config.payouts : [100];
 
     const awards: Array<{ userId: string; amount: number; place: number }> = [];
     let distributed = 0;

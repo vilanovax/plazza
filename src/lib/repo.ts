@@ -32,6 +32,12 @@ export async function listUsers(): Promise<User[]> {
   return query<User>("SELECT * FROM users ORDER BY created_at DESC");
 }
 
+/** Fetch just the users named by id (one round-trip), for name lookups. */
+export async function getUsersByIds(ids: string[]): Promise<User[]> {
+  if (ids.length === 0) return [];
+  return query<User>("SELECT * FROM users WHERE id = ANY($1)", [ids]);
+}
+
 export async function createUser(
   username: string,
   passwordHash: string,
@@ -491,8 +497,30 @@ export async function getTournament(id: string): Promise<TournamentRow | null> {
   return one<TournamentRow>("SELECT * FROM tournaments WHERE id = $1", [id]);
 }
 
+/** Tournaments plus their registration counts in a single aggregate query. */
+export async function listTournamentsWithCounts(): Promise<Array<TournamentRow & { registered: number }>> {
+  const rows = await query<TournamentRow & { registered: string }>(
+    `SELECT t.*, COUNT(e.user_id)::int AS registered
+       FROM tournaments t
+       LEFT JOIN tournament_entries e ON e.tournament_id = t.id
+      GROUP BY t.id
+      ORDER BY t.created_at DESC`
+  );
+  return rows.map((r) => ({ ...r, registered: Number(r.registered) }));
+}
+
 export async function getTournamentByTable(tableId: string): Promise<TournamentRow | null> {
-  return one<TournamentRow>("SELECT * FROM tournaments WHERE table_id = $1", [tableId]);
+  // Match on either side of the (redundantly maintained) table<->tournament
+  // link so a caller that set only one column can't break the lookup: the
+  // tournaments.table_id column OR poker_tables.tournament_id back-reference.
+  return one<TournamentRow>(
+    `SELECT t.* FROM tournaments t
+      WHERE t.table_id = $1
+         OR t.id = (SELECT pt.tournament_id FROM poker_tables pt WHERE pt.id = $1)
+      ORDER BY (t.table_id = $1) DESC
+      LIMIT 1`,
+    [tableId]
+  );
 }
 
 export async function updateTournament(id: string, patch: Record<string, unknown>): Promise<void> {
@@ -532,25 +560,48 @@ export async function buyIntoTournament(
   buyInChips: number,
   isRebuy: boolean
 ): Promise<void> {
+  if (!Number.isFinite(buyInChips) || buyInChips <= 0) {
+    throw new Error("مبلغ ورودی تورنومنت نامعتبر است");
+  }
   await tx(async (client) => {
+    // Lock the tournament row so concurrent registrations serialise here: the
+    // status/capacity re-checks below then see a consistent count.
+    const trow = await client.query<{ status: string; max_players: number }>(
+      "SELECT status, max_players FROM tournaments WHERE id = $1 FOR UPDATE",
+      [tournamentId]
+    );
+    if (trow.rowCount === 0) throw new Error("تورنومنت یافت نشد");
+    const tournament = trow.rows[0];
+
+    if (isRebuy) {
+      const up = await client.query(
+        `UPDATE tournament_entries SET rebuys = rebuys + 1 WHERE tournament_id = $1 AND user_id = $2`,
+        [tournamentId, userId]
+      );
+      if (up.rowCount === 0) throw new Error("ورودی تورنومنت یافت نشد");
+    } else {
+      if (tournament.status !== "scheduled") throw new Error("ثبت‌نام این تورنومنت بسته است");
+      const cnt = await client.query<{ n: string }>(
+        "SELECT COUNT(*)::int AS n FROM tournament_entries WHERE tournament_id = $1",
+        [tournamentId]
+      );
+      if (Number(cnt.rows[0].n) >= tournament.max_players) throw new Error("ظرفیت تورنومنت تکمیل است");
+      // RETURNING lets us detect a duplicate registration (ON CONFLICT -> no row)
+      // so we never debit the buy-in without actually creating an entry.
+      const ins = await client.query(
+        `INSERT INTO tournament_entries (tournament_id, user_id, status) VALUES ($1,$2,'registered')
+         ON CONFLICT (tournament_id, user_id) DO NOTHING RETURNING id`,
+        [tournamentId, userId]
+      );
+      if (ins.rowCount === 0) throw new Error("قبلاً ثبت‌نام کرده‌اید");
+    }
+
     await applyLedgerTx(client, {
       userId,
       type: "buy_in",
       amount: -buyInChips,
       note: isRebuy ? "ری‌بای تورنومنت" : "ثبت‌نام تورنومنت",
     });
-    if (isRebuy) {
-      await client.query(
-        `UPDATE tournament_entries SET rebuys = rebuys + 1 WHERE tournament_id = $1 AND user_id = $2`,
-        [tournamentId, userId]
-      );
-    } else {
-      await client.query(
-        `INSERT INTO tournament_entries (tournament_id, user_id, status) VALUES ($1,$2,'registered')
-         ON CONFLICT (tournament_id, user_id) DO NOTHING`,
-        [tournamentId, userId]
-      );
-    }
     await client.query("UPDATE tournaments SET prize_pool = prize_pool + $2 WHERE id = $1", [
       tournamentId,
       buyInChips,
@@ -558,12 +609,15 @@ export async function buyIntoTournament(
   });
 }
 
+const ENTRY_COLUMNS = new Set(["chips", "place", "status"]);
 export async function setEntry(
   tournamentId: string,
   userId: string,
   patch: { chips?: number; place?: number | null; status?: string }
 ): Promise<void> {
-  const keys = Object.keys(patch);
+  // Allowlist column names before interpolating them into SQL (defense-in-depth,
+  // matching updateSettings / updateTournament).
+  const keys = Object.keys(patch).filter((k) => ENTRY_COLUMNS.has(k));
   if (!keys.length) return;
   const set = keys.map((k, i) => `${k} = $${i + 3}`).join(", ");
   await query(
@@ -584,15 +638,31 @@ export async function awardPrize(
     if (amount > 0) {
       await applyLedgerTx(client, { userId, type: "win", amount, tableId: null, note: `جایزه تورنومنت (رتبه ${place})` });
     }
-    await client.query(
+    const res = await client.query(
       `UPDATE tournament_entries SET prize = $3, place = $4, status = $5 WHERE tournament_id = $1 AND user_id = $2`,
       [tournamentId, userId, amount, place, status]
     );
+    // If the entry row is missing we must not silently credit the bank with no
+    // record of the payout — roll the whole transaction back.
+    if (res.rowCount === 0) throw new Error("ثبت جایزه ناموفق بود: ورودی یافت نشد");
   });
 }
 
 export async function setTableTournament(tableId: string, tournamentId: string): Promise<void> {
   await query("UPDATE poker_tables SET tournament_id = $2 WHERE id = $1", [tableId, tournamentId]);
+}
+
+/**
+ * Atomically claim the payout/finish phase for a tournament. Flips a still-
+ * running tournament to `finishing` and returns true to exactly one caller;
+ * concurrent or repeat callers get false and must not distribute prizes again.
+ */
+export async function claimTournamentFinish(id: string): Promise<boolean> {
+  const row = await one<{ id: string }>(
+    "UPDATE tournaments SET status = 'finishing' WHERE id = $1 AND status = 'running' RETURNING id",
+    [id]
+  );
+  return row != null;
 }
 
 export { getPool };

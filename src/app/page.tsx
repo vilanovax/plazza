@@ -23,6 +23,13 @@ export default function LobbyPage() {
     setTables(tables);
   }, []);
 
+  // Re-fetch the current user (e.g. after a tournament buy-in debits chips) so
+  // the header balance stays in sync.
+  const refreshMe = useCallback(async () => {
+    const u = await fetchMe();
+    if (u) setMe(u);
+  }, []);
+
   useEffect(() => {
     fetchMe().then((u) => {
       if (!u) return router.replace("/login");
@@ -89,7 +96,7 @@ export default function LobbyPage() {
         ))}
       </div>
 
-      <TournamentsSection isAdmin={me.role === "admin"} />
+      <TournamentsSection isAdmin={me.role === "admin"} onBalanceChange={refreshMe} />
     </main>
   );
 }
@@ -99,14 +106,14 @@ interface TournamentSummary {
   maxPlayers: number; registered: number; prizePool: number; payouts: number[];
 }
 
-function TournamentsSection({ isAdmin }: { isAdmin: boolean }) {
+function TournamentsSection({ isAdmin, onBalanceChange }: { isAdmin: boolean; onBalanceChange: () => void }) {
   const [items, setItems] = useState<TournamentSummary[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const load = useCallback(() => api<{ tournaments: TournamentSummary[] }>("/api/tournaments").then((d) => setItems(d.tournaments)), []);
   useEffect(() => { load(); }, [load]);
 
   async function register(id: string) {
-    try { await api(`/api/tournaments/${id}/register`, { method: "POST" }); load(); }
+    try { await api(`/api/tournaments/${id}/register`, { method: "POST" }); load(); onBalanceChange(); }
     catch (e) { alert((e as Error).message); }
   }
   async function start(id: string) {
@@ -114,7 +121,7 @@ function TournamentsSection({ isAdmin }: { isAdmin: boolean }) {
     catch (e) { alert((e as Error).message); }
   }
 
-  const STATUS_FA: Record<string, string> = { scheduled: "در انتظار", running: "در حال اجرا", finished: "پایان‌یافته", cancelled: "لغو" };
+  const STATUS_FA: Record<string, string> = { scheduled: "در انتظار", running: "در حال اجرا", finishing: "در حال پایان", finished: "پایان‌یافته", cancelled: "لغو" };
 
   return (
     <section style={{ marginTop: 22 }}>

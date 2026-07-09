@@ -14,7 +14,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     if (entries.length >= t.max_players) return error("ظرفیت تورنومنت تکمیل است");
 
     const user = await repo.getUserById(session.sub);
-    if (!user || user.chip_balance < t.buy_in_chips) return error("موجودی ژتون برای ثبت‌نام کافی نیست");
+    // pg can return BIGINT columns as strings — coerce both sides so this is a
+    // numeric comparison, not a lexicographic one.
+    if (!user || Number(user.chip_balance) < Number(t.buy_in_chips)) {
+      return error("موجودی ژتون برای ثبت‌نام کافی نیست");
+    }
 
     await repo.buyIntoTournament(id, session.sub, Number(t.buy_in_chips), false);
     return json({ ok: true });

@@ -54,6 +54,13 @@ function niceRound(n: number): number {
 
 export function validatePayouts(payouts: number[]): boolean {
   if (payouts.length === 0) return false;
-  if (payouts.some((p) => p < 0)) return false;
+  // Every share must be a finite, non-negative number.
+  if (payouts.some((p) => !Number.isFinite(p) || p < 0)) return false;
+  // First place must actually pay something, and shares must be non-increasing
+  // (rank N can never earn more than rank N-1).
+  if (payouts[0] <= 0) return false;
+  for (let i = 1; i < payouts.length; i++) {
+    if (payouts[i] > payouts[i - 1]) return false;
+  }
   return payouts.reduce((a, b) => a + b, 0) === 100;
 }

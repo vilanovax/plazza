@@ -35,6 +35,8 @@ interface TableRuntime {
   logSeq: number;
   /** Per-user auto-removal timers for players who sit out too long. */
   sitOutTimers: Map<string, NodeJS.Timeout>;
+  /** True when this table backs a tournament (disables voluntary sit-out). */
+  isTournament: boolean;
 }
 
 const LOG_CAP = 60;
@@ -81,7 +83,14 @@ export class GameManager {
           }
         }
       }
-      const rt: TableRuntime = { game, tableId, log: [], logSeq: 0, sitOutTimers: new Map() };
+      const rt: TableRuntime = {
+        game,
+        tableId,
+        log: [],
+        logSeq: 0,
+        sitOutTimers: new Map(),
+        isTournament: row.tournament_id != null,
+      };
       this.tables.set(tableId, rt);
       return rt;
     })();
@@ -256,6 +265,9 @@ export class GameManager {
   async sitOut(tableId: string, userId: string, out: boolean): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt) throw new InvalidActionError("میز فعال نیست");
+    // Sitting out in a tournament would let a player dodge the blinds while
+    // keeping their stack — not allowed. They must play or bust.
+    if (rt.isTournament) throw new InvalidActionError("در تورنومنت امکان سیت‌اوت وجود ندارد");
     const seat = rt.game.seats.find((s) => s.userId === userId);
     if (!seat) throw new InvalidActionError("شما سر این میز نیستید");
     const wasOut = seat.sitOut === true;
@@ -457,6 +469,9 @@ export class GameManager {
   async setBlinds(tableId: string, sb: number, bb: number, ante: number): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt) return;
+    if (![sb, bb, ante].every((n) => Number.isFinite(n) && n >= 0) || sb <= 0 || bb < sb) {
+      throw new InvalidActionError("بلایندهای نامعتبر");
+    }
     rt.game.config.smallBlind = sb;
     rt.game.config.bigBlind = bb;
     rt.game.config.ante = ante;
@@ -466,17 +481,18 @@ export class GameManager {
 
   async seatTournamentPlayer(tableId: string, seatIndex: number, userId: string, name: string, stack: number): Promise<void> {
     const rt = await this.ensureLoaded(tableId);
+    rt.isTournament = true;
     rt.game.sit(seatIndex, userId, name, stack);
     await repo.upsertSeat(tableId, seatIndex, userId, stack, stack);
     this.pushLog(rt, `${name} وارد تورنومنت شد`);
   }
 
-  addTournamentChips(tableId: string, userId: string, amount: number): void {
+  async addTournamentChips(tableId: string, userId: string, amount: number): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt) throw new InvalidActionError("میز فعال نیست");
     rt.game.addChips(userId, amount);
     const seat = rt.game.seats.find((s) => s.userId === userId);
-    if (seat) void repo.updateSeatStack(tableId, seat.seatIndex, seat.stack);
+    if (seat) await repo.updateSeatStack(tableId, seat.seatIndex, seat.stack);
   }
 
   async removeTournamentPlayer(tableId: string, userId: string, reason: string): Promise<void> {

@@ -1,5 +1,5 @@
 "use client";
-import { use, useEffect, useState, useCallback } from "react";
+import { use, useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
@@ -12,21 +12,41 @@ interface Detail {
   blindSchedule: { level: number; sb: number; bb: number; ante: number; minutes: number }[];
 }
 
-const STATUS_FA: Record<string, string> = { scheduled: "در انتظار", running: "در حال اجرا", finished: "پایان‌یافته", cancelled: "لغو" };
+const STATUS_FA: Record<string, string> = { scheduled: "در انتظار", running: "در حال اجرا", finishing: "در حال پایان", finished: "پایان‌یافته", cancelled: "لغو" };
 
 export default function TournamentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
   const [d, setD] = useState<Detail | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  // Monotonic request counter: a slower earlier response is dropped so it can't
+  // overwrite a newer one. Because `load` is recreated (and re-invoked) when the
+  // id changes, an in-flight request for the previous id also loses the race and
+  // is discarded — its data never bleeds into the new tournament's page.
+  const genRef = useRef(0);
 
-  const load = useCallback(() => api<Detail>(`/api/tournaments/${id}`).then(setD).catch(() => {}), [id]);
-  useEffect(() => { fetchMe().then((u) => (u ? load() : router.replace("/login"))); }, [router, load]);
+  const load = useCallback(() => {
+    const gen = ++genRef.current;
+    return api<Detail>(`/api/tournaments/${id}`)
+      .then((v) => { if (gen === genRef.current) { setD(v); setErr(null); } })
+      .catch((e) => { if (gen === genRef.current) setErr(e instanceof Error ? e.message : "خطا در دریافت اطلاعات تورنومنت"); });
+  }, [id]);
+  useEffect(() => {
+    fetchMe()
+      .then((u) => (u ? load() : router.replace("/login")))
+      .catch(() => router.replace("/login"));
+  }, [router, load]);
   useEffect(() => {
     const t = setInterval(load, 4000); // light polling for live standings
     return () => clearInterval(t);
   }, [load]);
 
-  if (!d) return <main style={{ padding: 24 }}>در حال بارگذاری…</main>;
+  if (!d)
+    return (
+      <main style={{ padding: 24 }}>
+        {err ? <span style={{ color: "var(--danger, #e33)" }}>{err}</span> : "در حال بارگذاری…"}
+      </main>
+    );
 
   const sorted = [...d.entries].sort((a, b) => {
     if (a.status === "active" && b.status !== "active") return -1;

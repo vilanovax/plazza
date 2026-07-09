@@ -34,16 +34,27 @@ function fin(v: number, def: number): number {
 
 /** Coerce any config loaded from JSON into safe, finite values the engine relies on. */
 function normalizeConfig(c: TableConfig): TableConfig {
+  // extra-time requests use sentinels: -1 = unlimited, 0 = off, N>0 = capped.
+  // Any other (e.g. NaN or a stray negative) collapses to the -1 default.
+  const etr = Math.trunc(fin(c.extraTimeRequests, -1));
   return {
     ...c,
     maxSeats: Math.min(9, Math.max(2, Math.trunc(fin(c.maxSeats, 6)))),
     smallBlind: Math.max(1, Math.trunc(fin(c.smallBlind, 5))),
     bigBlind: Math.max(1, Math.trunc(fin(c.bigBlind, 10))),
     ante: Math.max(0, Math.trunc(fin(c.ante, 0))),
+    // Chip-path bounds: NaN here would silently disable the buy-in/top-up/rake
+    // guards or poison every pot, so clamp them all to finite, non-negative values.
+    rakePercent: Math.min(100, Math.max(0, fin(c.rakePercent, 0))),
+    rakeCap: Math.max(0, Math.trunc(fin(c.rakeCap, 0))),
+    minBuyIn: Math.max(0, Math.trunc(fin(c.minBuyIn, 0))),
+    maxBuyIn: Math.max(0, Math.trunc(fin(c.maxBuyIn, 0))),
+    topUpMin: Math.max(0, Math.trunc(fin(c.topUpMin, 0))),
+    topUpMax: Math.max(0, Math.trunc(fin(c.topUpMax, 0))),
     thinkTimeSec: Math.min(MAX_TIMER_SEC, Math.max(3, Math.trunc(fin(c.thinkTimeSec, 30)))),
     sitOutMaxMin: Math.min(1440, Math.max(0, Math.trunc(fin(c.sitOutMaxMin, 5)))),
     extraTimeSec: Math.min(MAX_TIMER_SEC, Math.max(0, Math.trunc(fin(c.extraTimeSec, 15)))),
-    extraTimeRequests: Number.isFinite(c.extraTimeRequests) ? Math.trunc(c.extraTimeRequests) : -1,
+    extraTimeRequests: etr < -1 ? -1 : etr,
   };
 }
 
@@ -198,7 +209,10 @@ export class HoldemGame {
       seat.cappedThisRound = false;
       seat.pendingLeave = false;
       seat.extraTimeUsed = 0;
+      seat.extraTimeThisTurn = false;
       seat.holeCards = undefined;
+      // Record the pre-blind stack so a same-hand bust can be ranked correctly.
+      seat.stackAtHandStart = seat.stack;
       if (seat.userId && seat.stack > 0 && !seat.sitOut) seat.status = "active";
       else if (seat.userId) seat.status = "sitting_out";
     }
@@ -566,7 +580,14 @@ export class HoldemGame {
     const seat = this.seats.find((s) => s.userId === userId);
     if (!seat || seat.status === "empty") throw new InvalidActionError("بازیکن یافت نشد");
     if (!Number.isFinite(amount) || amount <= 0) throw new InvalidActionError("مبلغ نامعتبر است");
-    if (seat.status === "active" || seat.status === "allin") {
+    // Guard on the *game phase* (not seat status): after a showdown settle() sets
+    // phase = "hand_complete" without resetting all-in/busted seat statuses, so a
+    // status check would wrongly reject a rebuy for a just-busted player. While a
+    // hand is live, a seat that is in it (or has chips in the pot) can't be topped
+    // up. A seat leaving the table is emptied at settlement, discarding any chips.
+    const handInProgress = this.phase !== "waiting" && this.phase !== "hand_complete";
+    const inHand = seat.status === "active" || seat.status === "allin";
+    if (seat.pendingLeave || (handInProgress && (inHand || seat.committedThisHand > 0))) {
       throw new InvalidActionError("در میانه دست نمی‌توان ژتون اضافه کرد");
     }
     seat.stack += amount;

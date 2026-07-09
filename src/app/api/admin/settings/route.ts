@@ -52,6 +52,19 @@ export async function PUT(req: Request) {
 
     for (const k of BOOL) if (k in body) (patch as Record<string, boolean>)[k] = Boolean(body[k]);
 
+    // Cross-field validation against the *effective* values (existing settings
+    // merged with this patch), so a min never ends up above its paired max.
+    const current = await repo.getSettings();
+    const eff = { ...current, ...patch } as unknown as Record<string, number>;
+    const pairs: Array<[keyof AdminSettings, keyof AdminSettings, string]> = [
+      ["default_small_blind", "default_big_blind", "بلایند کوچک نباید از بلایند بزرگ بیشتر باشد"],
+      ["default_min_buyin", "default_max_buyin", "حداقل خرید نباید از حداکثر خرید بیشتر باشد"],
+      ["topup_min", "topup_max", "حداقل تاپ‌آپ نباید از حداکثر تاپ‌آپ بیشتر باشد"],
+    ];
+    for (const [lo, hi, msg] of pairs) {
+      if (eff[lo] > eff[hi]) return error(msg);
+    }
+
     const settings = await repo.updateSettings(patch);
     return json({ settings });
   });

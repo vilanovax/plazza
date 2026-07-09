@@ -74,6 +74,9 @@ export interface SeatState {
   status: SeatStatus;
   betThisRound: number;
   committedThisHand: number;
+  /** Chips the seat had when the current hand was dealt (before blinds/antes).
+   *  Used to rank players who bust in the same hand (bigger stack finishes higher). */
+  stackAtHandStart?: number;
   hasActedThisRound: boolean;
   isConnected: boolean;
   /** After a sub-minimum all-in, players who already acted may only call/fold. */

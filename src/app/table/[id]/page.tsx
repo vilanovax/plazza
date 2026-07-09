@@ -55,6 +55,13 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   useEffect(() => {
     if (state?.phase === "hand_complete") loadTourney();
   }, [state?.phase, state?.handNo, loadTourney]);
+  // Blind levels advance on a server-side timer independent of hand completion,
+  // so poll on a short interval to keep the level/blinds/rebuy banner fresh.
+  useEffect(() => {
+    if (!tourney) return; // not a tournament table — no need to poll
+    const t = setInterval(loadTourney, 5000);
+    return () => clearInterval(t);
+  }, [tourney, loadTourney]);
 
   const seatCount = state?.config.maxSeats ?? 6;
   const viewerSeat = state?.viewerSeat ?? null;
