@@ -1,36 +1,120 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ♠ پوکر آنلاین دوستانه — Online Poker PWA
 
-## Getting Started
+اپلیکیشن پیش‌رونده وب (PWA) برای بازی پوکر **تگزاس هولدم** به‌صورت آنلاین با دوستان.
+بازی فقط با **ژتون** است (بدون پول واقعی) و حساب‌ها توسط **مدیر** کنترل می‌شوند.
 
-First, run the development server:
+A Progressive Web App for playing **Texas Hold'em** online with friends. Chips‑only
+(no real money); accounts are managed by an admin. Built with **Next.js**, a custom
+**Socket.IO** server, and **PostgreSQL**.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## قابلیت‌ها / Features
+
+- **موتور سرور-محور (ضدتقلب):** شافل کارت‌ها با CSPRNG و درهم‌سازی Fisher–Yates روی سرور
+  انجام می‌شود. کارت‌های هر بازیکن فقط برای خودش ارسال می‌شود؛ همه اقدام‌ها روی سرور
+  اعتبارسنجی می‌شوند. برای هر دست یک *commitment* منتشر و seed پس از پایان برای بازبینی
+  ذخیره می‌شود (provable fairness).
+- **همزمانی زنده:** یک نمونهٔ بازی در حافظهٔ سرور برای هر میز، پخش وضعیت شخصی‌سازی‌شده به
+  هر کلاینت، و تایمر «زمان فکر» با فولد/چک خودکار.
+- **حساب و ژتون:** بانک ژتون هر بازیکن، دفتر کل (ledger) کامل با تاریخچه، و پرچم
+  **تسویه‌شده/نشده** که مدیر تعیین می‌کند چه کسی به چه کسی پرداخته است.
+- **تاپ‌آپ:** بازیکن سر میز درخواست افزایش ژتون می‌دهد؛ بسته به تنظیمات، مستقیم اعمال
+  می‌شود یا در صف تأیید مدیر قرار می‌گیرد (حداقل/حداکثر قابل تنظیم).
+- **تنظیمات میز و مدیر:** بلایند کوچک/بزرگ، آنته، درصد و سقف rake میز، حداقل/حداکثر ورود،
+  زمان فکر هر نوبت، مجاز بودن تاپ‌آپ، و پیش‌فرض‌های سراسری.
+- **پنل مدیریت:** مدیریت کاربران، شارژ/کسر ژتون، تأیید تاپ‌آپ‌ها، مشاهدهٔ تسویه‌ها، و
+  تنظیمات سراسری.
+- **PWA:** manifest + service worker، RTL فارسی، موبایل-محور، قابل نصب.
+- **تورنومنت:** زیرساخت دیتابیس آماده است (فاز بعد).
+
+---
+
+## معماری / Architecture
+
+```
+Browser (PWA, React/Next client)
+   │  HTTPS (REST: auth, lobby, admin)      WebSocket (/api/socket)
+   ▼                                             ▼
+Custom Node server (server.ts)  ──►  Next.js request handler (App Router)
+   │                                             │
+   ▼                                             ▼
+Socket.IO handlers ──► GameManager (in-memory authority, 1 game/table)
+                              │  HoldemGame engine (deck, evaluator, state machine)
+                              ▼
+                        PostgreSQL (users, ledger, hands+actions, topups, tables)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- `src/lib/poker/` — موتور خالص و مستقل پوکر (کارت‌ها، دک امن، ارزیاب دست، ماشین حالت).
+- `src/server/` — GameManager و هندلرهای Socket.IO (منبع حقیقت زنده).
+- `src/app/api/` — مسیرهای REST (احراز هویت، لابی، حساب، مدیریت).
+- `src/app/` — رابط کاربری (لابی، میز زنده، حساب، پنل مدیر).
+- `db/` — schema، مهاجرت (migration) و seed.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+سرور با **esbuild** به یک باندل CJS تبدیل می‌شود تا Next بدون تداخل زیر یک سرور
+سفارشی Socket.IO اجرا شود (به همراه polyfill سراسری `AsyncLocalStorage`).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## راه‌اندازی / Setup
 
-To learn more about Next.js, take a look at the following resources:
+پیش‌نیاز: Node.js 20+ و PostgreSQL 14+.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+# ۱) نصب وابستگی‌ها
+npm install
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+# ۲) پیکربندی محیط
+cp .env.example .env
+# سپس DATABASE_URL و AUTH_SECRET را در .env تنظیم کنید
+#   AUTH_SECRET را با: openssl rand -base64 48  بسازید
 
-## Deploy on Vercel
+# ۳) ساخت جداول و ادمین پیش‌فرض
+npm run db:migrate
+npm run db:seed        # ادمین پیش‌فرض: admin / admin1234 (بعداً تغییر دهید)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+# ۴) اجرای توسعه
+npm run dev            # http://localhost:3000
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# اجرای تولید
+npm run build          # next build + باندل سرور
+npm start
+```
+
+### متغیرهای محیطی
+
+| متغیر | توضیح |
+|------|-------|
+| `DATABASE_URL` | رشتهٔ اتصال Postgres |
+| `AUTH_SECRET` | کلید امضای JWT نشست (حداقل ۱۶ کاراکتر؛ توصیه ۳۲+) |
+| `PORT` | پورت سرور (پیش‌فرض 3000) |
+| `SEED_ADMIN_USERNAME` / `SEED_ADMIN_PASSWORD` | اطلاعات ادمینِ seed |
+
+---
+
+## تست / Tests
+
+```bash
+npm test        # تست‌های واحد موتور پوکر (ارزیاب دست + پایستگی ژتون + پات‌های جانبی)
+```
+
+موتور با ۱۳ تست واحد پوشش داده شده و یک سناریوی end-to-end (دو بازیکن، یک دست کامل تا
+showdown با بررسی پایستگی ژتون) به‌صورت دستی تأیید شده است.
+
+---
+
+## نکات امنیتی / انصاف
+
+- کارت‌ها هرگز به کلاینتی که مجاز به دیدنشان نیست ارسال نمی‌شوند (`publicState`).
+- دک فقط روی سرور ساخته و شافل می‌شود؛ کلاینت هیچ کنترلی روی کارت‌ها ندارد.
+- تمام اقدام‌ها (مبلغ‌ها، نوبت‌ها) روی سرور دوباره اعتبارسنجی و به موجودی واقعی محدود می‌شوند.
+- کل تاریخچهٔ دست‌ها و اقدام‌ها برای داوری اختلاف ذخیره می‌شود (`hands`, `hand_actions`).
+
+---
+
+## نقشهٔ راه / Roadmap
+
+- اجرای کامل تورنومنت (ساختار جداول آماده است): برنامهٔ بلایند، ادغام میزها، رتبه‌بندی.
+- بازپخش دست و بازبینی provable-fairness در رابط کاربری.
+- نشستن مجدد/جابه‌جایی صندلی، sit-out خودکار، و timebank.
+- اعلان‌های Web Push برای نوبت بازیکن.

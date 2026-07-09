@@ -1,5 +1,5 @@
 "use client";
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTableSocket } from "@/components/useTableSocket";
@@ -150,10 +150,18 @@ function SeatView({ seat, isTurn, isButton, deadline }: {
 }
 
 function Countdown({ deadline }: { deadline: number }) {
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 400); return () => clearInterval(t); }, []);
-  const left = Math.max(0, Math.ceil((deadline - now) / 1000));
-  return <div style={{ position: "absolute", top: -6, left: -6, background: "var(--gold)", color: "#2a1e00", borderRadius: 10, fontSize: 11, fontWeight: 800, padding: "1px 6px" }}>{left}</div>;
+  const [now, setNow] = useState(0);
+  useEffect(() => {
+    const tick = () => setNow(Date.now());
+    const raf = requestAnimationFrame(tick); // first update on next frame (a callback, not sync)
+    const t = setInterval(tick, 400);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearInterval(t);
+    };
+  }, []);
+  const left = now > 0 ? Math.max(0, Math.ceil((deadline - now) / 1000)) : null;
+  return <div style={{ position: "absolute", top: -6, left: -6, background: "var(--gold)", color: "#2a1e00", borderRadius: 10, fontSize: 11, fontWeight: 800, padding: "1px 6px" }}>{left ?? "•"}</div>;
 }
 
 function ActionBar({ state, mySeat, act, topup, leaveSeat }: {
@@ -165,7 +173,14 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat }: {
   const maxTo = mySeat.betThisRound + mySeat.stack;
   const minRaiseTo = Math.min(maxTo, state.currentBet > 0 ? state.currentBet + state.minRaise : state.config.bigBlind);
   const [raiseTo, setRaiseTo] = useState(minRaiseTo);
-  useEffect(() => { setRaiseTo(minRaiseTo); }, [minRaiseTo, state.handNo, state.phase, state.currentBet]);
+  // Reset the slider whenever the betting context changes (React's render-time
+  // "adjust state on prop change" pattern — no effect needed).
+  const betKey = `${state.handNo}:${state.phase}:${state.currentBet}`;
+  const [prevBetKey, setPrevBetKey] = useState(betKey);
+  if (betKey !== prevBetKey) {
+    setPrevBetKey(betKey);
+    setRaiseTo(minRaiseTo);
+  }
 
   const canRaise = maxTo > state.currentBet;
   const [showTopup, setShowTopup] = useState(false);

@@ -36,13 +36,11 @@ async function main() {
   registerSocketHandlers(io);
 
   httpServer.listen(port, hostname, () => {
-    // eslint-disable-next-line no-console
     console.log(`> Poker PWA ready on http://${hostname}:${port} (dev=${dev})`);
   });
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error("Fatal server error:", err);
   process.exit(1);
 });
