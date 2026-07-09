@@ -19,12 +19,17 @@ const RED = new Set([1, 2]); // diamonds, hearts
 export default function ProfilePage() {
   const router = useRouter();
   const [p, setP] = useState<Profile | null>(null);
+  const [myId, setMyId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
     fetchMe()
-      .then((u) => (u ? api<{ profile: Profile }>("/api/profile").then((d) => setP(d.profile)) : router.replace("/login")))
+      .then((u) => {
+        if (!u) return router.replace("/login");
+        setMyId(u.id);
+        return api<{ profile: Profile }>("/api/profile").then((d) => setP(d.profile));
+      })
       .catch(() => router.replace("/login"));
   }, [router]);
 
@@ -60,6 +65,7 @@ export default function ProfilePage() {
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <Link href="/" className="btn btn-ghost" style={{ padding: "0.3rem 0.7rem", fontSize: 13 }}>→ لابی</Link>
         <h1 style={{ fontSize: 20, margin: 0 }}>پروفایل من</h1>
+        {myId ? <Link href={`/u/${myId}`} className="btn btn-ghost" style={{ padding: "0.3rem 0.7rem", fontSize: 13 }}>نمای عمومی</Link> : <span />}
       </header>
 
       {/* Preview */}

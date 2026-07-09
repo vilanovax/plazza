@@ -482,6 +482,44 @@ export async function getPlayerTableStats(tableId: string, userId: string): Prom
   };
 }
 
+export interface GlobalPlayerStats {
+  handsPlayed: number;
+  handsWon: number;
+  tablesPlayed: number;
+  biggestWin: number;
+  biggestPot: number;
+  buyInCount: number;
+  totalBought: number;
+  netLifetime: number;
+}
+
+/** Lifetime stats for a player across every table (for the public profile). */
+export async function getGlobalPlayerStats(userId: string): Promise<GlobalPlayerStats> {
+  const row = await one<Record<string, string>>(
+    `SELECT
+       (SELECT count(*) FROM hand_players WHERE user_id = $1) AS hands_played,
+       (SELECT count(*) FROM hand_players WHERE user_id = $1 AND won) AS hands_won,
+       (SELECT count(DISTINCT table_id) FROM hand_players WHERE user_id = $1) AS tables_played,
+       (SELECT COALESCE(MAX(net), 0) FROM hand_players WHERE user_id = $1) AS biggest_win,
+       (SELECT COALESCE(MAX(h.pot), 0) FROM hand_players hp JOIN hands h ON h.id = hp.hand_id
+          WHERE hp.user_id = $1 AND hp.won) AS biggest_pot,
+       (SELECT count(*) FROM ledger_entries WHERE user_id = $1 AND type IN ('buy_in','topup')) AS buyin_count,
+       (SELECT COALESCE(SUM(-amount), 0) FROM ledger_entries WHERE user_id = $1 AND type IN ('buy_in','topup')) AS total_bought,
+       (SELECT COALESCE(SUM(net), 0) FROM hand_players WHERE user_id = $1) AS net_lifetime`,
+    [userId]
+  );
+  return {
+    handsPlayed: Number(row?.hands_played ?? 0),
+    handsWon: Number(row?.hands_won ?? 0),
+    tablesPlayed: Number(row?.tables_played ?? 0),
+    biggestWin: Number(row?.biggest_win ?? 0),
+    biggestPot: Number(row?.biggest_pot ?? 0),
+    buyInCount: Number(row?.buyin_count ?? 0),
+    totalBought: Number(row?.total_bought ?? 0),
+    netLifetime: Number(row?.net_lifetime ?? 0),
+  };
+}
+
 export async function insertAction(
   handId: string,
   seatIndex: number,

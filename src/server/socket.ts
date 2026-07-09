@@ -49,9 +49,9 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         data.tableId = tableId;
         socket.join(`table:${tableId}`);
         gameManager.setConnected(tableId, data.userId, true);
-        // Pick up the joining player's latest cosmetic profile edits.
+        // Pick up the joining player's latest cosmetic profile edits (this also
+        // broadcasts the refreshed state to the room).
         await gameManager.refreshProfile(tableId, data.userId);
-        await gameManager.broadcast(tableId);
       } catch (err) {
         fail(socket, err);
       }

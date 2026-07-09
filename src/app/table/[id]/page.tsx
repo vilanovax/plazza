@@ -648,8 +648,11 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
             <StatRow label="سود/زیان خالص" value={`${(stats.net ?? 0) >= 0 ? "+" : ""}${(stats.net ?? 0).toLocaleString("fa")}`} color={(stats.net ?? 0) >= 0 ? "var(--accent)" : "var(--danger)"} />
           </div>
         )}
+        <Link href={`/u/${userId}`} className="btn btn-ghost" style={{ display: "block", textAlign: "center", width: "100%", marginTop: 12, fontSize: 13 }}>
+          پروفایل کامل و افتخارات →
+        </Link>
         {canKick && onKick && (
-          <button className="btn btn-danger" style={{ width: "100%", marginTop: 14 }}
+          <button className="btn btn-danger" style={{ width: "100%", marginTop: 8 }}
             onClick={() => { if (confirm(`${name} از میز حذف شود؟`)) onKick(); }}>
             حذف از میز (کیک)
           </button>

@@ -170,6 +170,7 @@ export class GameManager {
     }
     await repo.removeSeat(rt.tableId, seat.seatIndex);
     this.clearSitOutTimer(rt, userId);
+    rt.profiles.delete(userId); // keep the cosmetic cache scoped to seated players
     return name;
   }
 
@@ -608,10 +609,15 @@ export class GameManager {
     await this.broadcast(tableId);
   }
 
-  /** Refresh a player's cached cosmetic profile at a table (e.g. after editing). */
+  /** Refresh a player's cached cosmetic profile at a table and broadcast so
+   *  connected clients immediately see the updated avatar/title/etc. */
   async refreshProfile(tableId: string, userId: string): Promise<void> {
     const rt = this.tables.get(tableId);
-    if (rt) await this.cacheProfile(rt, userId);
+    if (!rt) return;
+    // Only cache for a seated player — a spectator has no seat to decorate, and
+    // caching them would leak entries the seat-removal eviction never clears.
+    if (rt.game.seats.some((s) => s.userId === userId)) await this.cacheProfile(rt, userId);
+    await this.broadcast(tableId);
   }
 
   /** Fetch + cache a player's cosmetic profile for table display (best-effort). */
