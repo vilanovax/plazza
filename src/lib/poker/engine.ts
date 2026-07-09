@@ -24,7 +24,15 @@ import type {
   TableConfig,
 } from "./types";
 
-export class InvalidActionError extends Error {}
+export class InvalidActionError extends Error {
+  // Set a stable name so callers can identify this across module-graph
+  // boundaries (the esbuild server bundle and Next's compiled routes hold
+  // separate copies of this class, so `instanceof` is unreliable between them).
+  constructor(message?: string) {
+    super(message);
+    this.name = "InvalidActionError";
+  }
+}
 
 const MAX_TIMER_SEC = 3600; // 1h — keeps timer math well within setTimeout limits
 

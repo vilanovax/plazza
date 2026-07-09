@@ -215,9 +215,15 @@ export class GameManager {
    */
   async closeTable(tableId: string): Promise<void> {
     const rt = this.tables.get(tableId);
-    if (!rt) return;
     // A tournament table is torn down by the tournament lifecycle (teardownTable),
-    // which does NOT cash play chips to the bank. Block the cash-out close path.
+    // which does NOT cash play chips to the bank. Block the cash-out close path —
+    // even when the runtime isn't loaded (e.g. after a restart), by consulting
+    // the DB so an unloaded state can't bypass the guard.
+    if (!rt) {
+      const row = await repo.getTable(tableId);
+      if (row?.tournament_id) throw new InvalidActionError("میز تورنومنت با پایان تورنومنت بسته می‌شود");
+      return;
+    }
     if (rt.isTournament) throw new InvalidActionError("میز تورنومنت با پایان تورنومنت بسته می‌شود");
     const phase = rt.game.phase;
     if (phase !== "waiting" && phase !== "hand_complete") {

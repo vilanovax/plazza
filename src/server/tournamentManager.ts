@@ -54,6 +54,9 @@ export class TournamentManager {
 
     const l1 = this.levelOf(t, 1);
     const settings = await repo.getSettings();
+    // starting_stack is BIGINT → pg returns it as a string; coerce so the engine
+    // (which clamps numeric config) sees a real number, not NaN.
+    const startingStack = Number(t.starting_stack);
     const config: TableConfig = {
       name: t.name,
       maxSeats: Math.min(9, Math.max(2, t.max_players)),
@@ -63,8 +66,8 @@ export class TournamentManager {
       rakePercent: 0,
       rakeCap: 0,
       noFlopNoDrop: true,
-      minBuyIn: t.starting_stack,
-      maxBuyIn: t.starting_stack,
+      minBuyIn: startingStack,
+      maxBuyIn: startingStack,
       thinkTimeSec: settings.default_think_time_sec,
       allowTopUp: false,
       topUpMin: 0,
@@ -83,8 +86,8 @@ export class TournamentManager {
     for (const e of entries) {
       const user = await repo.getUserById(e.user_id);
       if (!user) continue;
-      await gameManager.seatTournamentPlayer(table.id, seat++, e.user_id, user.display_name, t.starting_stack);
-      await repo.setEntry(tournamentId, e.user_id, { status: "active", chips: t.starting_stack });
+      await gameManager.seatTournamentPlayer(table.id, seat++, e.user_id, user.display_name, startingStack);
+      await repo.setEntry(tournamentId, e.user_id, { status: "active", chips: startingStack });
     }
 
     const levelEnds = new Date(Date.now() + l1.minutes * 60_000).toISOString();
@@ -179,9 +182,11 @@ export class TournamentManager {
         throw new InvalidActionError("تا پایان دست فعلی نمی‌توان ری‌بای کرد");
       }
 
-      await repo.buyIntoTournament(tournamentId, userId, t.buy_in_chips, true);
-      await gameManager.addTournamentChips(t.table_id, userId, t.starting_stack);
-      await repo.setEntry(tournamentId, userId, { chips: t.starting_stack });
+      // BIGINT columns arrive as strings — coerce before arithmetic/engine use.
+      const startingStack = Number(t.starting_stack);
+      await repo.buyIntoTournament(tournamentId, userId, Number(t.buy_in_chips), true);
+      await gameManager.addTournamentChips(t.table_id, userId, startingStack);
+      await repo.setEntry(tournamentId, userId, { chips: startingStack });
       gameManager.logMessage(t.table_id, `${seat.name ?? "بازیکن"} ری‌بای کرد`);
       gameManager.startTable(t.table_id);
     } finally {
@@ -247,7 +252,7 @@ export class TournamentManager {
 
     const entries = await repo.listEntries(tournamentId);
     const byPlace = entries.filter((e) => e.place != null).sort((a, b) => (a.place as number) - (b.place as number));
-    const pool = t.prize_pool;
+    const pool = Number(t.prize_pool); // BIGINT → string; coerce for payout math
     // Payouts are validated at creation, so an invalid config here means stored
     // data was corrupted. Rather than strand the already-collected pool, pay it
     // to first place — but make the deviation loud (server log + table feed) so

@@ -599,7 +599,7 @@ export async function buyIntoTournament(
       // so we never debit the buy-in without actually creating an entry.
       const ins = await client.query(
         `INSERT INTO tournament_entries (tournament_id, user_id, status) VALUES ($1,$2,'registered')
-         ON CONFLICT (tournament_id, user_id) DO NOTHING RETURNING id`,
+         ON CONFLICT (tournament_id, user_id) DO NOTHING RETURNING user_id`,
         [tournamentId, userId]
       );
       if (ins.rowCount === 0) throw new Error("قبلاً ثبت‌نام کرده‌اید");

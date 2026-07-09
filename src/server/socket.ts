@@ -124,6 +124,11 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       try {
         const amt = Math.floor(amount);
         if (amt <= 0) throw new InvalidActionError("مبلغ نامعتبر است");
+        // Tournaments never take bank-funded top-ups (only rebuy). Guard here too:
+        // the "queue for admin" branch below bypasses gameManager.topUp's guard.
+        if (gameManager.getRuntime(tableId)?.isTournament) {
+          throw new InvalidActionError("در تورنومنت فقط ری‌بای ممکن است");
+        }
         const settings = await repo.getSettings();
         if (amt < settings.topup_min || amt > settings.topup_max) {
           throw new InvalidActionError(`مبلغ باید بین ${settings.topup_min} و ${settings.topup_max} باشد`);

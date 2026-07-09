@@ -34,6 +34,11 @@ export async function requireAdmin(): Promise<SessionPayload> {
 export function handler(fn: () => Promise<NextResponse>): Promise<NextResponse> {
   return fn().catch((err) => {
     if (err instanceof HttpError) return error(err.message, err.status);
+    // InvalidActionError (from the poker engine / game manager) is a client-
+    // correctable rejection. It may be thrown by the esbuild-bundled game
+    // manager whose class identity differs from this graph's, so match on the
+    // stable `name` rather than `instanceof`.
+    if (err instanceof Error && err.name === "InvalidActionError") return error(err.message, 409);
     // Log details server-side but never leak internals to the client.
     console.error("API error:", err);
     return error("خطای داخلی سرور", 500);
