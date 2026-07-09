@@ -1,6 +1,18 @@
 import { handler, error, json, requireSession } from "@/lib/api";
 import * as repo from "@/lib/repo";
 
+/** Parse a BIGINT-ish value (string | number | bigint) to BigInt, or null if invalid. */
+function toBigInt(v: unknown): bigint | null {
+  try {
+    if (typeof v === "bigint") return v;
+    if (typeof v === "number") return Number.isInteger(v) ? BigInt(v) : null;
+    if (typeof v === "string" && /^-?\d+$/.test(v.trim())) return BigInt(v.trim());
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   return handler(async () => {
     const session = await requireSession();
@@ -14,9 +26,12 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     if (entries.length >= t.max_players) return error("ظرفیت تورنومنت تکمیل است");
 
     const user = await repo.getUserById(session.sub);
-    // pg can return BIGINT columns as strings — coerce both sides so this is a
-    // numeric comparison, not a lexicographic one.
-    if (!user || Number(user.chip_balance) < Number(t.buy_in_chips)) {
+    // chip_balance / buy_in_chips are BIGINT (pg returns them as strings).
+    // Compare with BigInt so a balance above Number.MAX_SAFE_INTEGER can't round
+    // and slip past the funds check; a malformed value fails the guard.
+    const balance = toBigInt(user?.chip_balance);
+    const cost = toBigInt(t.buy_in_chips);
+    if (!user || balance === null || cost === null || balance < cost) {
       return error("موجودی ژتون برای ثبت‌نام کافی نیست");
     }
 

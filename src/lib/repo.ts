@@ -32,10 +32,16 @@ export async function listUsers(): Promise<User[]> {
   return query<User>("SELECT * FROM users ORDER BY created_at DESC");
 }
 
-/** Fetch just the users named by id (one round-trip), for name lookups. */
-export async function getUsersByIds(ids: string[]): Promise<User[]> {
+/** Fetch just the id/name of users by id (one round-trip). Projects only the
+ *  public columns so sensitive fields (e.g. password_hash) never leave the DB. */
+export async function getUsersByIds(
+  ids: string[]
+): Promise<Array<Pick<User, "id" | "username" | "display_name">>> {
   if (ids.length === 0) return [];
-  return query<User>("SELECT * FROM users WHERE id = ANY($1)", [ids]);
+  return query<Pick<User, "id" | "username" | "display_name">>(
+    "SELECT id, username, display_name FROM users WHERE id = ANY($1)",
+    [ids]
+  );
 }
 
 export async function createUser(
@@ -497,10 +503,13 @@ export async function getTournament(id: string): Promise<TournamentRow | null> {
   return one<TournamentRow>("SELECT * FROM tournaments WHERE id = $1", [id]);
 }
 
-/** Tournaments plus their registration counts in a single aggregate query. */
+/** Tournaments plus their live participant counts in a single aggregate query.
+ *  Counts only entries still in the field (registered/active) so the lobby's
+ *  "N players" reflects who is actually in, not eliminated/finished entrants. */
 export async function listTournamentsWithCounts(): Promise<Array<TournamentRow & { registered: number }>> {
   const rows = await query<TournamentRow & { registered: string }>(
-    `SELECT t.*, COUNT(e.user_id)::int AS registered
+    `SELECT t.*,
+            COUNT(e.user_id) FILTER (WHERE e.status IN ('registered', 'active'))::int AS registered
        FROM tournaments t
        LEFT JOIN tournament_entries e ON e.tournament_id = t.id
       GROUP BY t.id

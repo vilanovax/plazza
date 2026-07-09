@@ -248,9 +248,18 @@ export class TournamentManager {
     const entries = await repo.listEntries(tournamentId);
     const byPlace = entries.filter((e) => e.place != null).sort((a, b) => (a.place as number) - (b.place as number));
     const pool = t.prize_pool;
-    // Fall back to winner-takes-all if a bad payout config ever slipped through,
-    // rather than skipping payouts and stranding the pool.
-    const payouts = validatePayouts(t.config.payouts) ? t.config.payouts : [100];
+    // Payouts are validated at creation, so an invalid config here means stored
+    // data was corrupted. Rather than strand the already-collected pool, pay it
+    // to first place — but make the deviation loud (server log + table feed) so
+    // an admin can reconcile, instead of silently rewriting the split.
+    let payouts = t.config.payouts;
+    if (!validatePayouts(payouts)) {
+      payouts = [100];
+      console.error(
+        `tournament ${tournamentId}: invalid payout config ${JSON.stringify(t.config.payouts)} — paying winner-takes-all`
+      );
+      gameManager.logMessage(tableId, "هشدار: تنظیم جوایز نامعتبر بود؛ کل جایزه به نفر اول پرداخت شد");
+    }
 
     const awards: Array<{ userId: string; amount: number; place: number }> = [];
     let distributed = 0;

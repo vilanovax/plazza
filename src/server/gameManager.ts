@@ -111,6 +111,9 @@ export class GameManager {
   // --------------------------------------------------------------------------
   async sit(tableId: string, userId: string, seatIndex: number, buyIn: number): Promise<void> {
     const rt = await this.ensureLoaded(tableId);
+    // Tournament seats are filled only through registration/seatTournamentPlayer;
+    // the cash buy-in path must never debit the bank for a tournament table.
+    if (rt.isTournament) throw new InvalidActionError("صندلی‌های تورنومنت از راه ثبت‌نام پر می‌شوند");
     const cfg = rt.game.config;
     if (buyIn < cfg.minBuyIn || buyIn > cfg.maxBuyIn) {
       throw new InvalidActionError(`مبلغ ورود باید بین ${cfg.minBuyIn} و ${cfg.maxBuyIn} باشد`);
@@ -166,6 +169,9 @@ export class GameManager {
   async leave(tableId: string, userId: string): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt) return;
+    // In a tournament, play chips are not bank chips — cashing them out via
+    // leave() would credit the real ledger. Players play or bust; no leaving.
+    if (rt.isTournament) throw new InvalidActionError("در تورنومنت نمی‌توانید میز را ترک کنید");
     const name = await this.removeSeatCore(rt, userId, true);
     if (name === null) return;
     this.pushLog(rt, `${name} میز را ترک کرد`);
@@ -174,6 +180,8 @@ export class GameManager {
 
   async topUp(tableId: string, userId: string, amount: number): Promise<void> {
     const rt = await this.ensureLoaded(tableId);
+    // Tournament stacks change only via blinds/pots/rebuy — never a bank top-up.
+    if (rt.isTournament) throw new InvalidActionError("در تورنومنت فقط ری‌بای ممکن است");
     const seat = rt.game.seats.find((s) => s.userId === userId);
     if (!seat) throw new InvalidActionError("شما سر این میز نیستید");
     const user = await repo.getUserById(userId);
@@ -208,6 +216,9 @@ export class GameManager {
   async closeTable(tableId: string): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt) return;
+    // A tournament table is torn down by the tournament lifecycle (teardownTable),
+    // which does NOT cash play chips to the bank. Block the cash-out close path.
+    if (rt.isTournament) throw new InvalidActionError("میز تورنومنت با پایان تورنومنت بسته می‌شود");
     const phase = rt.game.phase;
     if (phase !== "waiting" && phase !== "hand_complete") {
       throw new InvalidActionError("تا پایان دست جاری نمی‌توان میز را بست");
@@ -314,6 +325,9 @@ export class GameManager {
     if (actorRole !== "admin") throw new InvalidActionError("فقط مدیر می‌تواند بازیکن را حذف کند");
     const rt = this.tables.get(tableId);
     if (!rt) throw new InvalidActionError("میز فعال نیست");
+    // Kicking cashes the stack to the bank; in a tournament use the tournament
+    // removal flow instead so play chips are never credited to the real ledger.
+    if (rt.isTournament) throw new InvalidActionError("برای حذف بازیکن تورنومنت از ابزار تورنومنت استفاده کنید");
     const seat = rt.game.seats[seatIndex];
     if (!seat || !seat.userId) throw new InvalidActionError("صندلی خالی است");
     // Guard against the seat changing occupants between selection and confirm.
