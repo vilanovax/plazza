@@ -1,0 +1,112 @@
+/**
+ * Shared poker types. These are safe to import from client code — none of them
+ * contain private information (the deck and other players' hole cards never
+ * leave the server; see PublicGameState below).
+ */
+import type { Card } from "./cards";
+
+export type ActionType = "fold" | "check" | "call" | "bet" | "raise" | "allin";
+
+export interface PlayerAction {
+  type: ActionType;
+  /** For bet/raise: the total amount the player is raising *to* this round. */
+  amount?: number;
+}
+
+export type SeatStatus =
+  | "empty"
+  | "active" // in the current hand, still to act or acted
+  | "folded"
+  | "allin"
+  | "sitting_out"; // seated but not dealt in
+
+export type GamePhase =
+  | "waiting" // not enough players / between hands
+  | "preflop"
+  | "flop"
+  | "turn"
+  | "river"
+  | "showdown"
+  | "hand_complete";
+
+export interface TableConfig {
+  name: string;
+  maxSeats: number; // 2..9
+  smallBlind: number;
+  bigBlind: number;
+  ante: number;
+  /** House rake as a percentage of each pot (0..100). */
+  rakePercent: number;
+  /** Max chips the house takes per hand. */
+  rakeCap: number;
+  /** "no flop, no drop": skip rake when the hand ends before the flop. */
+  noFlopNoDrop: boolean;
+  minBuyIn: number;
+  maxBuyIn: number;
+  /** Seconds each player has to act before auto fold/check. */
+  thinkTimeSec: number;
+  /** Whether players may request a top-up when their stack runs out. */
+  allowTopUp: boolean;
+  topUpMin: number;
+  topUpMax: number;
+  /** Optional table lifetime in minutes (0 = unlimited). */
+  tableDurationMin: number;
+}
+
+export interface SeatState {
+  seatIndex: number;
+  userId: string | null;
+  name: string | null;
+  stack: number; // chips currently in front of the player at this table
+  status: SeatStatus;
+  betThisRound: number;
+  committedThisHand: number;
+  hasActedThisRound: boolean;
+  isConnected: boolean;
+  // Private — only ever sent to the owning player.
+  holeCards?: Card[];
+}
+
+export interface PotResult {
+  amount: number;
+  winners: Array<{ seatIndex: number; amount: number; handName?: string }>;
+}
+
+export interface HandResult {
+  handNo: number;
+  pots: PotResult[];
+  rake: number;
+  /** Cards revealed at showdown, keyed by seat index. */
+  shownCards: Record<number, Card[]>;
+  /** Seed revealed for provable-fairness auditing. */
+  deckSeed?: string;
+}
+
+/** State the server keeps privately (includes deck + all hole cards). */
+export interface GameState {
+  tableId: string;
+  config: TableConfig;
+  phase: GamePhase;
+  handNo: number;
+  buttonSeat: number;
+  currentTurnSeat: number | null;
+  seats: SeatState[];
+  community: Card[];
+  currentBet: number;
+  minRaise: number;
+  /** Sum of all committed chips this hand (for display; pots computed at end). */
+  pot: number;
+  /** Commitment (hash) published before the hand for provable fairness. */
+  deckCommitment?: string;
+  lastResult?: HandResult;
+  /** The most recent action, for client-side animation/log. */
+  lastAction?: { seatIndex: number; type: ActionType; amount: number };
+  /** Unix ms deadline for the current player's action. */
+  actionDeadline?: number;
+}
+
+/** Sanitised state broadcast to a specific viewer (their own cards only). */
+export interface PublicGameState extends Omit<GameState, "seats"> {
+  seats: Array<Omit<SeatState, "holeCards"> & { holeCards?: Card[]; hasCards: boolean }>;
+  viewerSeat: number | null;
+}

@@ -1,0 +1,17 @@
+{
+  "name": "پوکر آنلاین دوستانه",
+  "short_name": "پوکر",
+  "description": "میز پوکر تگزاس هولدم آنلاین با دوستان — فقط ژتون",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b3d2e",
+  "theme_color": "#0b3d2e",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
