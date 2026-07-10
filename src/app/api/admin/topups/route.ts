@@ -4,10 +4,10 @@ import * as repo from "@/lib/repo";
 export async function GET() {
   return handler(async () => {
     await requireAdmin();
-    const [pending, users, tables] = await Promise.all([
-      repo.listPendingTopups(),
-      repo.listUsers(),
-      repo.listOpenTables(),
+    const pending = await repo.listPendingTopups();
+    const [users, tables] = await Promise.all([
+      repo.getUsersByIds([...new Set(pending.map((t) => t.user_id))]),
+      repo.getTableNamesByIds([...new Set(pending.map((t) => t.table_id))]),
     ]);
     const names = new Map(users.map((u) => [u.id, u.display_name]));
     const tableNames = new Map(tables.map((t) => [t.id, t.name]));

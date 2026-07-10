@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { api, fetchMe } from "@/lib/client/api";
+import { api, fetchMe, invalidateMeCache } from "@/lib/client/api";
 import { Field, Input, LoadingScreen } from "@/components/ui";
 
 export default function LoginPage() {
@@ -31,6 +31,7 @@ export default function LoginPage() {
       } else {
         await api("/api/auth/register", { method: "POST", body: { username, password, displayName } });
       }
+      invalidateMeCache();
       router.replace("/");
     } catch (err) {
       setError((err as Error).message);

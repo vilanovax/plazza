@@ -1,5 +1,5 @@
 "use client";
-import { use, useCallback, useEffect, useRef, useState } from "react";
+import { use, useCallback, useEffect, useRef, useState, memo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTableSocket } from "@/components/useTableSocket";
@@ -297,7 +297,7 @@ function seatPosition(index: number, viewerSeat: number | null, n: number, compa
   return { x: 50 + rx * Math.cos(theta), y: 50 + ry * Math.sin(theta) };
 }
 
-function SeatView({ seat, isTurn, isButton, community, deadline, showdown, onSelect }: {
+const SeatView = memo(function SeatView({ seat, isTurn, isButton, community, deadline, showdown, onSelect }: {
   seat: SeatVM; isTurn: boolean; isButton: boolean; community: Card[]; deadline?: number; showdown?: boolean; onSelect?: () => void;
 }) {
   const folded = seat.status === "folded";
@@ -336,7 +336,7 @@ function SeatView({ seat, isTurn, isButton, community, deadline, showdown, onSel
       </div>
     </div>
   );
-}
+});
 
 function Countdown({ deadline }: { deadline: number }) {
   const [now, setNow] = useState(0);

@@ -203,10 +203,17 @@ export async function unsettledSummary(): Promise<SettlementRow[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Admin settings
+// Admin settings (in-memory cache — single row, changes rarely)
 // ---------------------------------------------------------------------------
+let settingsCache: { value: AdminSettings; at: number } | null = null;
+const SETTINGS_TTL_MS = 60_000;
+
 export async function getSettings(): Promise<AdminSettings> {
+  if (settingsCache && Date.now() - settingsCache.at < SETTINGS_TTL_MS) {
+    return settingsCache.value;
+  }
   const row = await one<AdminSettings>("SELECT * FROM admin_settings WHERE id = 1");
+  settingsCache = { value: row!, at: Date.now() };
   return row!;
 }
 
@@ -238,6 +245,7 @@ export async function updateSettings(patch: Partial<AdminSettings>): Promise<Adm
     `UPDATE admin_settings SET ${set}, updated_at = now() WHERE id = 1 RETURNING *`,
     values
   );
+  settingsCache = { value: row!, at: Date.now() };
   return row!;
 }
 
@@ -259,6 +267,38 @@ export async function createTable(
 export async function listOpenTables(): Promise<PokerTableRow[]> {
   return query<PokerTableRow>(
     "SELECT * FROM poker_tables WHERE status = 'open' ORDER BY created_at DESC"
+  );
+}
+
+/** Open tables with seated counts in one query (lobby list). */
+export async function listOpenTablesWithCounts(): Promise<
+  Array<{ id: string; name: string; config: TableConfig; seated: number; maxSeats: number }>
+> {
+  const rows = await query<{ id: string; name: string; config: TableConfig; seated: string }>(
+    `SELECT t.id,
+            t.name,
+            t.config,
+            COUNT(s.user_id)::int AS seated
+       FROM poker_tables t
+       LEFT JOIN table_seats s ON s.table_id = t.id AND s.user_id IS NOT NULL
+      WHERE t.status = 'open'
+      GROUP BY t.id
+      ORDER BY t.created_at DESC`
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    config: r.config,
+    seated: Number(r.seated),
+    maxSeats: r.config.maxSeats,
+  }));
+}
+
+export async function getTableNamesByIds(ids: string[]): Promise<Array<{ id: string; name: string }>> {
+  if (ids.length === 0) return [];
+  return query<{ id: string; name: string }>(
+    "SELECT id, name FROM poker_tables WHERE id = ANY($1)",
+    [ids]
   );
 }
 
@@ -466,12 +506,21 @@ export async function getPlayerTableStats(tableId: string, userId: string): Prom
     total_bought: string;
     net: string;
   }>(
-    `SELECT
-       (SELECT count(*) FROM hand_players WHERE table_id = $1 AND user_id = $2) AS hands_played,
-       (SELECT count(*) FROM hand_players WHERE table_id = $1 AND user_id = $2 AND won) AS hands_won,
-       (SELECT count(*) FROM ledger_entries WHERE table_id = $1 AND user_id = $2 AND type IN ('buy_in','topup')) AS buyin_count,
-       (SELECT COALESCE(SUM(-amount),0) FROM ledger_entries WHERE table_id = $1 AND user_id = $2 AND type IN ('buy_in','topup')) AS total_bought,
-       (SELECT COALESCE(SUM(net),0) FROM hand_players WHERE table_id = $1 AND user_id = $2) AS net`,
+    `WITH hp AS (
+       SELECT count(*)::int AS hands_played,
+              count(*) FILTER (WHERE won)::int AS hands_won,
+              COALESCE(SUM(net), 0) AS net
+         FROM hand_players
+        WHERE table_id = $1 AND user_id = $2
+     ),
+     le AS (
+       SELECT count(*)::int AS buyin_count,
+              COALESCE(SUM(-amount), 0) AS total_bought
+         FROM ledger_entries
+        WHERE table_id = $1 AND user_id = $2 AND type IN ('buy_in', 'topup')
+     )
+     SELECT hp.hands_played, hp.hands_won, le.buyin_count, le.total_bought, hp.net
+       FROM hp, le`,
     [tableId, userId]
   );
   return {
@@ -499,17 +548,31 @@ export interface GlobalPlayerStats {
 /** Lifetime stats for a player across every table (for the public profile). */
 export async function getGlobalPlayerStats(userId: string): Promise<GlobalPlayerStats> {
   const row = await one<Record<string, string>>(
-    `SELECT
-       (SELECT count(*) FROM hand_players WHERE user_id = $1) AS hands_played,
-       (SELECT count(*) FROM hand_players WHERE user_id = $1 AND won) AS hands_won,
-       (SELECT count(DISTINCT table_id) FROM hand_players WHERE user_id = $1) AS tables_played,
-       (SELECT COALESCE(MAX(net), 0) FROM hand_players WHERE user_id = $1) AS biggest_win,
-       (SELECT COALESCE(MAX(h.pot), 0) FROM hand_players hp JOIN hands h ON h.id = hp.hand_id
-          WHERE hp.user_id = $1 AND hp.won) AS biggest_pot,
-       (SELECT count(*) FROM ledger_entries WHERE user_id = $1 AND type IN ('buy_in','topup')) AS buyin_count,
-       (SELECT COALESCE(SUM(-amount), 0) FROM ledger_entries WHERE user_id = $1 AND type IN ('buy_in','topup')) AS total_bought,
-       (SELECT COALESCE(SUM(net), 0) FROM hand_players WHERE user_id = $1) AS net_lifetime,
-       (SELECT MAX(best_hand_rank) FROM hand_players WHERE user_id = $1) AS best_hand_rank`,
+    `WITH hp AS (
+       SELECT count(*)::int AS hands_played,
+              count(*) FILTER (WHERE won)::int AS hands_won,
+              count(DISTINCT table_id)::int AS tables_played,
+              COALESCE(MAX(net), 0) AS biggest_win,
+              COALESCE(SUM(net), 0) AS net_lifetime,
+              MAX(best_hand_rank) AS best_hand_rank
+         FROM hand_players
+        WHERE user_id = $1
+     ),
+     pot AS (
+       SELECT COALESCE(MAX(h.pot), 0) AS biggest_pot
+         FROM hand_players hp
+         JOIN hands h ON h.id = hp.hand_id
+        WHERE hp.user_id = $1 AND hp.won
+     ),
+     le AS (
+       SELECT count(*)::int AS buyin_count,
+              COALESCE(SUM(-amount), 0) AS total_bought
+         FROM ledger_entries
+        WHERE user_id = $1 AND type IN ('buy_in', 'topup')
+     )
+     SELECT hp.hands_played, hp.hands_won, hp.tables_played, hp.biggest_win,
+            pot.biggest_pot, le.buyin_count, le.total_bought, hp.net_lifetime, hp.best_hand_rank
+       FROM hp, pot, le`,
     [userId]
   );
   return {

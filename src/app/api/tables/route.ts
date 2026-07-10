@@ -6,20 +6,8 @@ import type { TableConfig } from "@/lib/poker/types";
 export async function GET() {
   return handler(async () => {
     await requireSession();
-    const tables = await repo.listOpenTables();
-    const withCounts = await Promise.all(
-      tables.map(async (t) => {
-        const seats = await repo.listSeats(t.id);
-        return {
-          id: t.id,
-          name: t.name,
-          config: t.config,
-          seated: seats.filter((s) => s.user_id).length,
-          maxSeats: t.config.maxSeats,
-        };
-      })
-    );
-    return json({ tables: withCounts });
+    const tables = await repo.listOpenTablesWithCounts();
+    return json({ tables });
   });
 }
 

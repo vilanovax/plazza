@@ -76,9 +76,18 @@ export class GameManager {
       const config = row.config as TableConfig;
       const game = new HoldemGame(tableId, config);
       const seats = await repo.listSeats(tableId);
+      const activeSeatUserIds = seats
+        .filter((s) => s.user_id && s.stack > 0)
+        .map((s) => s.user_id!);
+      const [users, profiles] = await Promise.all([
+        repo.getUsersByIds(activeSeatUserIds),
+        repo.getProfilesByIds(activeSeatUserIds),
+      ]);
+      const userMap = new Map(users.map((u) => [u.id, u]));
+      const profileMap = new Map(profiles.map((p) => [p.user_id, p]));
       for (const s of seats) {
         if (s.user_id && s.stack > 0) {
-          const user = await repo.getUserById(s.user_id);
+          const user = userMap.get(s.user_id);
           if (user) {
             const seat = game.seats[s.seat_index];
             seat.userId = user.id;
@@ -97,9 +106,17 @@ export class GameManager {
         isTournament: row.tournament_id != null,
         profiles: new Map(),
       };
+      for (const uid of activeSeatUserIds) {
+        const p = profileMap.get(uid);
+        rt.profiles.set(uid, {
+          avatar: p?.avatar ?? "",
+          title: p?.title ?? "",
+          tagline: p?.tagline ?? "",
+          chipColor: p?.chip_color ?? "",
+          cardBack: p?.card_back ?? "",
+        });
+      }
       this.tables.set(tableId, rt);
-      // Warm the cosmetic-profile cache for everyone already seated.
-      for (const s of seats) if (s.user_id) await this.cacheProfile(rt, s.user_id);
       return rt;
     })();
 
@@ -623,9 +640,8 @@ export class GameManager {
   async refreshProfile(tableId: string, userId: string): Promise<void> {
     const rt = this.tables.get(tableId);
     if (!rt) return;
-    // Only cache for a seated player — a spectator has no seat to decorate, and
-    // caching them would leak entries the seat-removal eviction never clears.
-    if (rt.game.seats.some((s) => s.userId === userId)) await this.cacheProfile(rt, userId);
+    const seated = rt.game.seats.some((s) => s.userId === userId);
+    if (seated && !rt.profiles.has(userId)) await this.cacheProfile(rt, userId);
     await this.broadcast(tableId);
   }
 
@@ -653,11 +669,11 @@ export class GameManager {
     const rt = this.tables.get(tableId);
     if (!rt || !this.io) return;
     const sockets = await this.io.in(room(tableId)).fetchSockets();
+    const log = rt.log;
     for (const s of sockets) {
       const uid = (s.data as { userId?: string }).userId ?? null;
       const ps = rt.game.publicState(uid);
-      ps.log = rt.log;
-      // Attach each seated player's cosmetic profile, and the viewer's card-back.
+      ps.log = log;
       for (const seat of ps.seats) {
         if (!seat.userId) continue;
         const p = rt.profiles.get(seat.userId);

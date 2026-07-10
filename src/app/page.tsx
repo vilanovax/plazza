@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { api, fetchMe, type Me } from "@/lib/client/api";
+import { api, fetchMe, invalidateMeCache, type Me } from "@/lib/client/api";
 import { Input, Field, Modal, LoadingScreen } from "@/components/ui";
 
 interface TableSummary {
@@ -44,7 +44,7 @@ export default function LobbyPage() {
   }, []);
 
   const refreshMe = useCallback(async () => {
-    const u = await fetchMe();
+    const u = await fetchMe({ fresh: true });
     if (u) setMe(u);
   }, []);
 
@@ -58,6 +58,7 @@ export default function LobbyPage() {
 
   async function logout() {
     await api("/api/auth/logout", { method: "POST" });
+    invalidateMeCache();
     router.replace("/login");
   }
 

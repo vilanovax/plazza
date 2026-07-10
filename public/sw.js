@@ -1,11 +1,10 @@
-/* Minimal service worker for the poker PWA.
+/* Minimal service worker for Plazza.
  *
- * Strategy: network-first for navigations (the game is realtime, we never want
- * stale HTML), cache-first for static assets so the shell loads offline. The
- * live table itself needs the network — offline mode only serves the app shell
- * and an offline notice.
+ * - Navigations: network-first (realtime app)
+ * - /_next/static: network-first (avoid stale JS after deploy)
+ * - Other static shell assets: cache-first for offline boot
  */
-const CACHE = "plazza-shell-v1";
+const CACHE = "plazza-shell-v2";
 const SHELL = ["/", "/offline", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -24,17 +23,25 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+function isNextStatic(url: URL): boolean {
+  return url.pathname.startsWith("/_next/static/");
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (request.method !== "GET") return;
 
   const url = new URL(request.url);
-  // Never intercept the realtime channel or API calls.
   if (url.pathname.startsWith("/api/")) return;
 
-  if (request.mode === "navigate") {
+  if (request.mode === "navigate" || isNextStatic(url)) {
     event.respondWith(
-      fetch(request).catch(() => caches.match("/offline").then((r) => r || caches.match("/")))
+      fetch(request).catch(() => {
+        if (request.mode === "navigate") {
+          return caches.match("/offline").then((r) => r || caches.match("/"));
+        }
+        return caches.match(request);
+      })
     );
     return;
   }
