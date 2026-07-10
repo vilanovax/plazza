@@ -13,11 +13,6 @@ import type { PublicGameState, PlayerAction, TableConfig, LogEntry } from "@/lib
 type PreAction = "fold" | "check_fold" | "check";
 const BETTING_PHASES = new Set(["preflop", "flop", "turn", "river"]);
 
-interface TournamentBanner {
-  id: string; level: number; sb: number; bb: number; ante: number;
-  prizePool: number; playersLeft: number; buyInChips: number; canRebuy: boolean;
-  onBreak?: boolean; lateRegOpen?: boolean;
-}
 import { evaluate, CATEGORY_NAMES_FA } from "@/lib/poker/evaluator";
 import { stringToCard, type Card } from "@/lib/poker/cards";
 import { QUICK_CHAT } from "@/lib/profile/presets";
@@ -40,9 +35,8 @@ const PHASE_FA: Record<string, string> = {
 export default function TablePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, chat } = useTableSocket(id);
+  const { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, chat } = useTableSocket(id);
   const [me, setMe] = useState<Me | null>(null);
-  const [tourney, setTourney] = useState<TournamentBanner | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [statsFor, setStatsFor] = useState<{ userId: string; name: string; seatIndex: number } | null>(null);
   // Pre-selected action to auto-run when it becomes the player's turn.
@@ -60,22 +54,6 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
   useEffect(() => { api<{ profile: { emotes: string[] } }>("/api/profile").then((d) => setMyEmotes(d.profile.emotes)).catch(() => {}); }, []);
-
-  // Poll the tournament summary (if this table belongs to one).
-  const loadTourney = useCallback(() => {
-    api<{ tournament: TournamentBanner | null }>(`/api/tournaments/by-table/${id}`).then((d) => setTourney(d.tournament)).catch(() => {});
-  }, [id]);
-  useEffect(() => { loadTourney(); }, [loadTourney]);
-  useEffect(() => {
-    if (state?.phase === "hand_complete") loadTourney();
-  }, [state?.phase, state?.handNo, loadTourney]);
-  // Blind levels advance on a server-side timer independent of hand completion,
-  // so poll on a short interval to keep the level/blinds/rebuy banner fresh.
-  useEffect(() => {
-    if (!tourney) return; // not a tournament table — no need to poll
-    const t = setInterval(loadTourney, 5000);
-    return () => clearInterval(t);
-  }, [tourney, loadTourney]);
 
   const seatCount = state?.config.maxSeats ?? 6;
   const viewerSeat = state?.viewerSeat ?? null;

@@ -1,0 +1,119 @@
+/* Cross-route list/card/section patterns (lobby, account, admin, profile, tournament) */
+.lobby-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.lobby-grid {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+.meta-pill--gold {
+  color: #f0d48a;
+  border-color: rgba(217, 180, 91, 0.25);
+  background: rgba(217, 180, 91, 0.1);
+}
+
+.profile-section {
+  margin-bottom: 0.85rem;
+  padding: 1rem 1rem 1.05rem;
+}
+
+.profile-section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.profile-section-icon {
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.profile-section-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.stat-card {
+  padding: 0.75rem;
+}
+
+.stat-card-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.stat-card-value {
+  font-weight: 800;
+  font-size: var(--text-base);
+}
+
+.stat-card-value--gold {
+  color: var(--gold);
+}
+
+.empty-state {
+  padding: 2rem 1.25rem;
+  text-align: center;
+  color: var(--muted);
+}
+
+.empty-state-icon {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+  opacity: 0.85;
+}
+
+.empty-state-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.empty-state-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.login-error {
+  margin-top: 0.65rem;
+  font-size: var(--text-sm);
+  color: var(--color-danger-300);
+}

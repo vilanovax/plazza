@@ -1,0 +1,48 @@
+/* Simple utility classes layered on top of Tailwind. */
+.panel {
+  background: rgba(6, 26, 20, 0.72);
+  border: 1px solid rgba(217, 180, 91, 0.18);
+  border-radius: 16px;
+  backdrop-filter: blur(6px);
+}
+
+.btn {
+  border-radius: 12px;
+  padding: 0.6rem 1rem;
+  border: 1px solid transparent;
+  font-weight: 600;
+  transition: transform 0.05s ease, filter 0.15s ease;
+}
+.btn:active {
+  transform: translateY(1px);
+}
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--accent);
+  color: #041a12;
+}
+.btn-gold {
+  background: var(--gold);
+  color: #2a1e00;
+}
+.btn-ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn:focus-visible,
+.ui-input:focus-visible,
+.modal-close:focus-visible,
+.pill-btn:focus-visible,
+.stakes-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}

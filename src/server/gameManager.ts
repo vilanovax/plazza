@@ -543,7 +543,7 @@ export class GameManager {
       try {
         await tx(async (client) => {
           await repo.finishHandTx(client, handId, g.community.map(cardToString), g.pot, result.rake, result.deckSeed, result);
-          await repo.insertHandPlayersTx(client, handId, rt.tableId, rows);
+          await repo.insertHandPlayersTx(client, handId, rt.tableId, rows, g.pot);
         });
       } catch (err) {
         console.error("persist hand failed", err);
@@ -712,6 +712,27 @@ export class GameManager {
       ps.log = log;
       this.attachProfiles(ps, rt, uid);
       s.emit("state", ps);
+    }
+  }
+
+  /** Emit an event to every socket in a table room (same payload for all). */
+  emitToTable(tableId: string, event: string, payload: unknown): void {
+    const sockets = this.roomSockets.get(tableId);
+    if (!sockets?.size) return;
+    for (const s of sockets) s.emit(event, payload);
+  }
+
+  /** Emit per-viewer payloads (e.g. tournament banner with personal canRebuy). */
+  emitToTablePersonalized(
+    tableId: string,
+    event: string,
+    payloadFor: (userId: string | null) => unknown
+  ): void {
+    const sockets = this.roomSockets.get(tableId);
+    if (!sockets?.size) return;
+    for (const s of sockets) {
+      const uid = (s.data as { userId?: string }).userId ?? null;
+      s.emit(event, payloadFor(uid));
     }
   }
 }

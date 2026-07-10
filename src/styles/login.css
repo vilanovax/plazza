@@ -1,0 +1,44 @@
+/* ── Login ── */
+.login-page {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--space-5);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  padding: 1.5rem 1.35rem;
+}
+
+.login-hero {
+  text-align: center;
+  margin-bottom: 1.25rem;
+}
+
+.login-logo {
+  display: inline-grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  margin-bottom: 0.65rem;
+  border-radius: 16px;
+  background: linear-gradient(160deg, var(--color-felt-500), var(--color-felt-600));
+  border: 1px solid rgba(217, 180, 91, 0.35);
+  font-size: 1.6rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+}
+
+.login-title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+}
+
+.login-subtitle {
+  margin: 0.35rem 0 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+

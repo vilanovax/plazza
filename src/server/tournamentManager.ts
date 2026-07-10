@@ -15,6 +15,7 @@ import type { TournamentRow } from "../lib/models";
 import { gameManager } from "./gameManager";
 import { InvalidActionError } from "../lib/poker/engine";
 import { validatePayouts, playableLevel } from "../lib/tournament/types";
+import { buildTableBanner } from "../lib/tournament/tableBanner";
 
 const NEXT_LEVEL_GRACE_MS = 500;
 
@@ -31,6 +32,32 @@ export class TournamentManager {
       const tid = this.tableToTournament.get(tableId);
       if (tid) void this.onHandEnd(tid, tableId);
     };
+  }
+
+  /** Push live tournament banner to every socket at this table (replaces HTTP polling). */
+  async broadcastTableUpdate(tableId: string): Promise<void> {
+    const t = await repo.getTournamentByTable(tableId);
+    if (!t) {
+      gameManager.emitToTable(tableId, "tournament_update", null);
+      return;
+    }
+    const entries = await repo.listEntries(t.id);
+    const lateRegOpen = this.lateRegOpen(t);
+    gameManager.emitToTablePersonalized(tableId, "tournament_update", (uid) =>
+      buildTableBanner(t, entries, uid, lateRegOpen)
+    );
+  }
+
+  /** Send the tournament banner to a single socket (on join). */
+  async pushTableUpdateToSocket(tableId: string, socket: { data: { userId?: string }; emit: (e: string, p: unknown) => void }): Promise<void> {
+    const t = await repo.getTournamentByTable(tableId);
+    if (!t) {
+      socket.emit("tournament_update", null);
+      return;
+    }
+    const entries = await repo.listEntries(t.id);
+    const uid = socket.data.userId ?? null;
+    socket.emit("tournament_update", buildTableBanner(t, entries, uid, this.lateRegOpen(t)));
   }
 
   /**
@@ -142,6 +169,7 @@ export class TournamentManager {
     gameManager.logMessage(table.id, `تورنومنت شروع شد — سطح ۱`);
     this.scheduleLevel(tournamentId, l1.minutes * 60_000);
     gameManager.startTable(table.id);
+    void this.broadcastTableUpdate(table.id);
   }
 
   // --------------------------------------------------------------------------
@@ -193,6 +221,7 @@ export class TournamentManager {
       if (!handLive) await this.onHandEnd(tournamentId, t.table_id, true);
     }
     if (!isTerminal) this.scheduleLevel(tournamentId, level.minutes * 60_000);
+    void this.broadcastTableUpdate(t.table_id);
   }
 
   // --------------------------------------------------------------------------
@@ -242,6 +271,7 @@ export class TournamentManager {
       await repo.setEntry(tournamentId, userId, { chips: startingStack });
       gameManager.logMessage(t.table_id, `${seat.name ?? "بازیکن"} ری‌بای کرد`);
       gameManager.startTable(t.table_id);
+      void this.broadcastTableUpdate(t.table_id);
     } finally {
       this.rebuying.delete(key);
     }
@@ -293,6 +323,7 @@ export class TournamentManager {
       }
       gameManager.logMessage(t.table_id, `${user.display_name} با ثبت‌نام با تأخیر وارد شد`);
       gameManager.startTable(t.table_id);
+      void this.broadcastTableUpdate(t.table_id);
     } finally {
       this.lateRegistering.delete(tournamentId);
     }
@@ -341,6 +372,7 @@ export class TournamentManager {
 
       const stillActive = (await repo.listEntries(tournamentId)).filter((e) => e.status === "active");
       if (stillActive.length <= 1) await this.finish(tournamentId, tableId, stillActive[0]?.user_id);
+      else void this.broadcastTableUpdate(tableId);
     } finally {
       this.processing.delete(tournamentId);
     }
@@ -391,6 +423,7 @@ export class TournamentManager {
     this.clearLevelTimer(tournamentId);
     this.tableToTournament.delete(tableId);
     await repo.updateTournament(tournamentId, { status: "finished", finished_at: new Date().toISOString() });
+    void this.broadcastTableUpdate(tableId);
     await repo.closeTable(tableId);
     await gameManager.teardownTable(tableId);
   }

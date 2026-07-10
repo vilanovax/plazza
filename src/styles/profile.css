@@ -1,0 +1,379 @@
+/* ── Profile (poker player card) ── */
+.profile-hero {
+  position: relative;
+  overflow: hidden;
+  margin-bottom: 1.1rem;
+  padding: 1.35rem 1.15rem 1.15rem;
+  background:
+    radial-gradient(ellipse 120% 80% at 50% 0%, rgba(47, 158, 111, 0.18), transparent 55%),
+    linear-gradient(165deg, rgba(8, 42, 32, 0.96), rgba(3, 18, 14, 0.94));
+  border: 1px solid rgba(217, 180, 91, 0.3);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.profile-hero::after {
+  content: "";
+  position: absolute;
+  inset: auto -20% -60% -20%;
+  height: 8rem;
+  background: radial-gradient(ellipse, rgba(0, 0, 0, 0.35), transparent 70%);
+  pointer-events: none;
+}
+
+.profile-hero-top {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+}
+
+.profile-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.profile-avatar-ring {
+  display: grid;
+  place-items: center;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.25);
+  border: 3px solid var(--profile-chip, var(--gold));
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.4),
+    0 0 18px color-mix(in srgb, var(--profile-chip, var(--gold)) 45%, transparent);
+}
+
+.profile-avatar-emoji {
+  font-size: 2.1rem;
+  line-height: 1;
+}
+
+.profile-hero-info {
+  flex: 1;
+  min-width: 0;
+  padding-top: 0.15rem;
+}
+
+.profile-hero-name {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.profile-hero-title {
+  display: inline-block;
+  margin-top: 0.35rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #2a1e00;
+  background: linear-gradient(135deg, #e8c96a, #c9a03d);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  box-shadow: 0 2px 8px rgba(217, 180, 91, 0.35);
+}
+
+.profile-hero-tagline {
+  margin: 0.45rem 0 0;
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.profile-hero-cards {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 0;
+  margin-top: 1rem;
+  min-height: 3.5rem;
+}
+
+.profile-hero-cards .playing-card-wrap:nth-child(1) {
+  transform: rotate(-8deg) translateX(6px);
+  z-index: 1;
+}
+
+.profile-hero-cards .playing-card-wrap:nth-child(2) {
+  transform: rotate(8deg) translateX(-6px);
+  z-index: 2;
+}
+
+.profile-hero-cards-empty {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  padding: 0.5rem;
+  border-radius: 12px;
+  border: 1px dashed rgba(217, 180, 91, 0.25);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.profile-section {
+  margin-bottom: 0.85rem;
+  padding: 1rem 1rem 1.05rem;
+}
+
+.profile-section-head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.profile-section-icon {
+  font-size: 1rem;
+  opacity: 0.9;
+}
+
+.profile-section-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.profile-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(2.6rem, 1fr));
+  gap: 0.45rem;
+}
+
+.profile-pick-btn {
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  padding: 0;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 1.25rem;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.profile-pick-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(217, 180, 91, 0.35);
+}
+
+.profile-pick-btn--active {
+  border-color: var(--gold);
+  background: rgba(217, 180, 91, 0.14);
+  box-shadow: 0 0 0 1px rgba(217, 180, 91, 0.25), 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.profile-card-rack {
+  padding: 0.65rem;
+  border-radius: 14px;
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(47, 158, 111, 0.12), transparent 60%),
+    rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  overflow-x: auto;
+}
+
+.profile-card-suit-row {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(1.65rem, 1fr));
+  gap: 0.28rem;
+  margin-bottom: 0.28rem;
+}
+
+.profile-card-suit-row:last-child {
+  margin-bottom: 0;
+}
+
+.profile-card-btn {
+  aspect-ratio: 5 / 7;
+  min-height: 2rem;
+  padding: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1;
+  background: linear-gradient(180deg, #fafbfc, #e8ecf0);
+  border: 1px solid #c5ced8;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.profile-card-btn--red {
+  color: #c41e2a;
+}
+
+.profile-card-btn--black {
+  color: #14181d;
+}
+
+.profile-card-btn--active {
+  transform: translateY(-3px) scale(1.05);
+  border: 2px solid var(--gold);
+  box-shadow:
+    0 0 0 1px rgba(217, 180, 91, 0.4),
+    0 6px 14px rgba(217, 180, 91, 0.28);
+  z-index: 1;
+}
+
+.profile-card-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.profile-backs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.profile-back-btn {
+  position: relative;
+  width: 2.65rem;
+  height: 3.65rem;
+  padding: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+  overflow: hidden;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.profile-back-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(0, 0, 0, 0.12),
+    rgba(0, 0, 0, 0.12) 4px,
+    rgba(255, 255, 255, 0.06) 4px,
+    rgba(255, 255, 255, 0.06) 8px
+  );
+}
+
+.profile-back-btn--active {
+  transform: translateY(-3px);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(217, 180, 91, 0.35), 0 8px 16px rgba(0, 0, 0, 0.35);
+}
+
+.profile-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.profile-chip-btn {
+  position: relative;
+  width: 2.35rem;
+  height: 2.35rem;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  border: 3px dashed rgba(255, 255, 255, 0.35);
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.25),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.profile-chip-btn--active {
+  transform: translateY(-2px) scale(1.08);
+  border-style: solid;
+  border-color: var(--gold);
+  box-shadow:
+    0 0 0 2px rgba(217, 180, 91, 0.35),
+    inset 0 2px 4px rgba(255, 255, 255, 0.25),
+    0 6px 14px rgba(0, 0, 0, 0.35);
+}
+
+.profile-emote-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(2.6rem, 1fr));
+  gap: 0.45rem;
+}
+
+.profile-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.85rem 0 1rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.profile-toggle input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.profile-save-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(8, 38, 29, 0.95), rgba(4, 20, 15, 0.9));
+  border: 1px solid rgba(217, 180, 91, 0.22);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.profile-save-msg {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.profile-save-msg--ok {
+  color: #7ee4b8;
+}
+
+.profile-save-msg--err {
+  color: #ff9aa0;
+}
+
+.playing-card-wrap {
+  display: inline-block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-pick-btn,
+  .profile-card-btn,
+  .profile-back-btn,
+  .profile-chip-btn {
+    transition: none;
+  }
+  .profile-pick-btn:hover,
+  .profile-card-btn--active,
+  .profile-back-btn--active,
+  .profile-chip-btn--active {
+    transform: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .profile-hero-top {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .profile-card-suit-row {
+    grid-template-columns: repeat(13, minmax(1.45rem, 1fr));
+  }
+}

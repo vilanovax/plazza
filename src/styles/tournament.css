@@ -1,0 +1,67 @@
+.tournament-hero-panel {
+  padding: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.tournament-leaderboard {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.tournament-entry {
+  opacity: 1;
+}
+
+.tournament-entry--inactive {
+  opacity: 0.65;
+}
+
+.tournament-entry--bubble {
+  border-color: var(--accent);
+}
+
+.bubble-banner {
+  padding: 0.65rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  color: var(--color-accent-400);
+  font-weight: 700;
+  font-size: var(--text-sm);
+}
+
+.break-banner {
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
+  font-weight: 800;
+  color: var(--gold);
+}
+
+.public-profile-hero {
+  margin-bottom: 0.85rem;
+  padding: 1.25rem 1.15rem;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.55rem;
+}
+
+.stat-card {
+  padding: 0.75rem;
+}
+
+.stat-card-label {
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
+.stat-card-value {
+  font-weight: 800;
+  font-size: var(--text-base);
+}
+
+.stat-card-value--gold {
+  color: var(--gold);
+}

@@ -1,0 +1,221 @@
+/* ── Account ── */
+.account-balance {
+  position: relative;
+  overflow: hidden;
+  padding: 1.5rem 1.25rem 1.35rem;
+  margin-bottom: 1.35rem;
+  text-align: center;
+  background: linear-gradient(155deg, rgba(10, 45, 34, 0.95), rgba(4, 20, 15, 0.92));
+  border: 1px solid rgba(217, 180, 91, 0.28);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+}
+
+.account-balance::before {
+  content: "";
+  position: absolute;
+  inset: -40% auto auto -20%;
+  width: 9rem;
+  height: 9rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(217, 180, 91, 0.12), transparent 70%);
+  pointer-events: none;
+}
+
+.account-balance-label {
+  position: relative;
+  font-size: 0.78rem;
+  color: var(--muted);
+  letter-spacing: 0.03em;
+}
+
+.account-balance-amount {
+  position: relative;
+  margin-top: 0.35rem;
+  font-size: 2.35rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 18px rgba(217, 180, 91, 0.25);
+}
+
+.account-balance-unit {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: rgba(217, 180, 91, 0.75);
+}
+
+.account-chips {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-top: 0.85rem;
+}
+
+.account-chip {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 2px dashed rgba(217, 180, 91, 0.45);
+  background: rgba(217, 180, 91, 0.12);
+}
+
+.account-chip:nth-child(2) {
+  transform: translateY(-3px);
+  border-style: solid;
+  background: rgba(217, 180, 91, 0.22);
+}
+
+.account-chip:nth-child(3) {
+  transform: translateY(-5px);
+  border-color: rgba(217, 180, 91, 0.65);
+  background: rgba(217, 180, 91, 0.3);
+}
+
+.account-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.65rem;
+}
+
+.account-section-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ledger-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.ledger-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 0.95rem;
+  transition: transform 0.16s ease, border-color 0.16s ease;
+}
+
+.ledger-item:hover {
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.ledger-icon {
+  display: grid;
+  place-items: center;
+  width: 2.35rem;
+  height: 2.35rem;
+  flex-shrink: 0;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ledger-icon--credit {
+  background: rgba(47, 158, 111, 0.16);
+  color: #7ee4b8;
+  border-color: rgba(47, 158, 111, 0.3);
+}
+
+.ledger-icon--debit {
+  background: rgba(229, 72, 77, 0.14);
+  color: #ff9aa0;
+  border-color: rgba(229, 72, 77, 0.28);
+}
+
+.ledger-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ledger-title {
+  font-weight: 700;
+  font-size: 0.92rem;
+  margin-bottom: 0.2rem;
+}
+
+.ledger-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.ledger-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-note {
+  opacity: 0.9;
+}
+
+.ledger-side {
+  text-align: left;
+  flex-shrink: 0;
+}
+
+.ledger-amount {
+  font-weight: 800;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ledger-amount--credit {
+  color: #7ee4b8;
+}
+
+.ledger-amount--debit {
+  color: #ff9aa0;
+}
+
+.ledger-balance-after {
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.ledger-badge {
+  display: inline-block;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  background: rgba(217, 180, 91, 0.14);
+  color: #f0d48a;
+  border: 1px solid rgba(217, 180, 91, 0.28);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-shell,
+  .ledger-item {
+    animation: none;
+    transition: none;
+  }
+  .ledger-item:hover {
+    transform: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .ledger-item {
+    flex-wrap: wrap;
+  }
+  .ledger-side {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 0.35rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+}

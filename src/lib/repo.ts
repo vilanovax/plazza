@@ -150,6 +150,9 @@ export async function applyLedgerTx(client: PoolClient, input: LedgerInput): Pro
       input.createdBy ?? null,
     ]
   );
+  if (input.type === "buy_in" || input.type === "topup") {
+    await applyBuyInStatsTx(client, input.userId, input.tableId ?? null, input.amount);
+  }
   return res.rows[0];
 }
 
@@ -482,11 +485,102 @@ export async function insertHandPlayersTx(
   client: PoolClient,
   handId: string,
   tableId: string,
-  rows: HandPlayerRow[]
+  rows: HandPlayerRow[],
+  pot: number
 ): Promise<void> {
   if (rows.length === 0) return;
   const { text, values } = handPlayersInsert(handId, tableId, rows);
-  await client.query(text, values);
+  const ins = await client.query(text, values);
+  if (ins.rowCount === 0) return; // duplicate hand replay — don't double-count stats
+  await applyHandStatsTx(client, tableId, pot, rows);
+}
+
+interface HandStatsRow {
+  userId: string;
+  won: boolean;
+  net: number;
+  bestHandRank?: number | null;
+}
+
+/** Increment denormalized stats after hand_players are persisted. */
+export async function applyHandStatsTx(
+  client: PoolClient,
+  tableId: string,
+  pot: number,
+  rows: HandStatsRow[]
+): Promise<void> {
+  for (const r of rows) {
+    const wonInc = r.won ? 1 : 0;
+    const tableRes = await client.query<{ is_new: boolean }>(
+      `INSERT INTO player_table_stats (table_id, user_id, hands_played, hands_won, net)
+       VALUES ($1, $2, 1, $3, $4)
+       ON CONFLICT (table_id, user_id) DO UPDATE SET
+         hands_played = player_table_stats.hands_played + 1,
+         hands_won = player_table_stats.hands_won + EXCLUDED.hands_won,
+         net = player_table_stats.net + EXCLUDED.net,
+         updated_at = now()
+       RETURNING (xmax = 0) AS is_new`,
+      [tableId, r.userId, wonInc, r.net]
+    );
+    const isFirstAtTable = tableRes.rows[0]?.is_new === true;
+    const bestRank = r.bestHandRank ?? null;
+    await client.query(
+      `INSERT INTO player_global_stats (
+         user_id, hands_played, hands_won, tables_played, biggest_win, biggest_pot,
+         net_lifetime, best_hand_rank
+       ) VALUES ($1, 1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (user_id) DO UPDATE SET
+         hands_played = player_global_stats.hands_played + 1,
+         hands_won = player_global_stats.hands_won + $2,
+         tables_played = player_global_stats.tables_played + $3,
+         biggest_win = GREATEST(player_global_stats.biggest_win, $4),
+         biggest_pot = GREATEST(
+           player_global_stats.biggest_pot,
+           CASE WHEN $2 > 0 THEN $5 ELSE 0 END
+         ),
+         net_lifetime = player_global_stats.net_lifetime + $6,
+         best_hand_rank = CASE
+           WHEN $7 IS NULL THEN player_global_stats.best_hand_rank
+           WHEN player_global_stats.best_hand_rank IS NULL THEN $7
+           ELSE GREATEST(player_global_stats.best_hand_rank, $7)
+         END,
+         updated_at = now()`,
+      [r.userId, wonInc, isFirstAtTable ? 1 : 0, r.net, r.won ? pot : 0, r.net, bestRank]
+    );
+  }
+}
+
+/** Bump buy-in / top-up counters when chips leave the bank for a table. */
+async function applyBuyInStatsTx(
+  client: PoolClient,
+  userId: string,
+  tableId: string | null,
+  amount: number
+): Promise<void> {
+  const bought = -amount;
+  if (!Number.isFinite(bought) || bought <= 0) return;
+
+  if (tableId) {
+    await client.query(
+      `INSERT INTO player_table_stats (table_id, user_id, buyin_count, total_bought)
+       VALUES ($1, $2, 1, $3)
+       ON CONFLICT (table_id, user_id) DO UPDATE SET
+         buyin_count = player_table_stats.buyin_count + 1,
+         total_bought = player_table_stats.total_bought + EXCLUDED.total_bought,
+         updated_at = now()`,
+      [tableId, userId, bought]
+    );
+  }
+
+  await client.query(
+    `INSERT INTO player_global_stats (user_id, buyin_count, total_bought)
+     VALUES ($1, 1, $2)
+     ON CONFLICT (user_id) DO UPDATE SET
+       buyin_count = player_global_stats.buyin_count + 1,
+       total_bought = player_global_stats.total_bought + EXCLUDED.total_bought,
+       updated_at = now()`,
+    [userId, bought]
+  );
 }
 
 export interface PlayerTableStats {
@@ -497,30 +591,18 @@ export interface PlayerTableStats {
   net: number;
 }
 
-/** Per-table statistics for one player. */
+/** Per-table statistics for one player (from materialized cache). */
 export async function getPlayerTableStats(tableId: string, userId: string): Promise<PlayerTableStats> {
   const row = await one<{
-    hands_played: string;
-    hands_won: string;
-    buyin_count: string;
+    hands_played: number;
+    hands_won: number;
+    buyin_count: number;
     total_bought: string;
     net: string;
   }>(
-    `WITH hp AS (
-       SELECT count(*)::int AS hands_played,
-              count(*) FILTER (WHERE won)::int AS hands_won,
-              COALESCE(SUM(net), 0) AS net
-         FROM hand_players
-        WHERE table_id = $1 AND user_id = $2
-     ),
-     le AS (
-       SELECT count(*)::int AS buyin_count,
-              COALESCE(SUM(-amount), 0) AS total_bought
-         FROM ledger_entries
-        WHERE table_id = $1 AND user_id = $2 AND type IN ('buy_in', 'topup')
-     )
-     SELECT hp.hands_played, hp.hands_won, le.buyin_count, le.total_bought, hp.net
-       FROM hp, le`,
+    `SELECT hands_played, hands_won, buyin_count, total_bought, net
+       FROM player_table_stats
+      WHERE table_id = $1 AND user_id = $2`,
     [tableId, userId]
   );
   return {
@@ -545,34 +627,23 @@ export interface GlobalPlayerStats {
   bestHandRank: number | null;
 }
 
-/** Lifetime stats for a player across every table (for the public profile). */
+/** Lifetime stats for a player across every table (from materialized cache). */
 export async function getGlobalPlayerStats(userId: string): Promise<GlobalPlayerStats> {
-  const row = await one<Record<string, string>>(
-    `WITH hp AS (
-       SELECT count(*)::int AS hands_played,
-              count(*) FILTER (WHERE won)::int AS hands_won,
-              count(DISTINCT table_id)::int AS tables_played,
-              COALESCE(MAX(net), 0) AS biggest_win,
-              COALESCE(SUM(net), 0) AS net_lifetime,
-              MAX(best_hand_rank) AS best_hand_rank
-         FROM hand_players
-        WHERE user_id = $1
-     ),
-     pot AS (
-       SELECT COALESCE(MAX(h.pot), 0) AS biggest_pot
-         FROM hand_players hp
-         JOIN hands h ON h.id = hp.hand_id
-        WHERE hp.user_id = $1 AND hp.won
-     ),
-     le AS (
-       SELECT count(*)::int AS buyin_count,
-              COALESCE(SUM(-amount), 0) AS total_bought
-         FROM ledger_entries
-        WHERE user_id = $1 AND type IN ('buy_in', 'topup')
-     )
-     SELECT hp.hands_played, hp.hands_won, hp.tables_played, hp.biggest_win,
-            pot.biggest_pot, le.buyin_count, le.total_bought, hp.net_lifetime, hp.best_hand_rank
-       FROM hp, pot, le`,
+  const row = await one<{
+    hands_played: number;
+    hands_won: number;
+    tables_played: number;
+    biggest_win: string;
+    biggest_pot: string;
+    buyin_count: number;
+    total_bought: string;
+    net_lifetime: string;
+    best_hand_rank: number | null;
+  }>(
+    `SELECT hands_played, hands_won, tables_played, biggest_win, biggest_pot,
+            buyin_count, total_bought, net_lifetime, best_hand_rank
+       FROM player_global_stats
+      WHERE user_id = $1`,
     [userId]
   );
   return {

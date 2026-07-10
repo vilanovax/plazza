@@ -1,0 +1,36 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background: radial-gradient(1200px 800px at 50% -10%, var(--color-felt-400) 0%, var(--color-felt-700) 55%, var(--color-felt-900) 100%);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+input,
+select {
+  font-family: inherit;
+}
+
+.card-suit-red {
+  color: #e5484d;
+}
+.card-suit-black {
+  color: #101418;
+}

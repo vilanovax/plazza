@@ -57,6 +57,7 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         gameManager.registerSocket(tableId, socket);
         gameManager.setConnected(tableId, data.userId, true);
         await gameManager.refreshProfile(tableId, data.userId);
+        await tournamentManager.pushTableUpdateToSocket(tableId, socket);
       } catch (err) {
         fail(socket, err);
       }

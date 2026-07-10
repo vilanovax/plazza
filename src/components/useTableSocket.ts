@@ -2,9 +2,11 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { io, type Socket } from "socket.io-client";
 import type { PublicGameState, PlayerAction } from "@/lib/poker/types";
+import type { TournamentTableBanner } from "@/lib/tournament/tableBanner";
 
 export interface TableSocket {
   state: PublicGameState | null;
+  tourney: TournamentTableBanner | null;
   connected: boolean;
   error: string | null;
   clearError: () => void;
@@ -22,6 +24,7 @@ export interface TableSocket {
 
 export function useTableSocket(tableId: string): TableSocket {
   const [state, setState] = useState<PublicGameState | null>(null);
+  const [tourney, setTourney] = useState<TournamentTableBanner | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sockRef = useRef<Socket | null>(null);
@@ -37,6 +40,7 @@ export function useTableSocket(tableId: string): TableSocket {
     socket.on("disconnect", () => setConnected(false));
     socket.on("connect_error", (e) => setError(e.message === "unauthorized" ? "احراز هویت ناموفق" : "اتصال برقرار نشد"));
     socket.on("state", (s: PublicGameState) => setState(s));
+    socket.on("tournament_update", (t: TournamentTableBanner | null) => setTourney(t));
     socket.on("action_error", ({ message }: { message: string }) => setError(message));
 
     return () => {
@@ -57,5 +61,5 @@ export function useTableSocket(tableId: string): TableSocket {
   const chat = useCallback((text: string) => sockRef.current?.emit("chat", { tableId, text }), [tableId]);
   const clearError = useCallback(() => setError(null), []);
 
-  return { state, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, chat };
+  return { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, chat };
 }

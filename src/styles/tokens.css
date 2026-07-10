@@ -1,0 +1,72 @@
+:root {
+  /* ── Brand: felt ── */
+  --color-felt-900: #04231a;
+  --color-felt-800: #06281d;
+  --color-felt-700: #073526;
+  --color-felt-600: #0b3d2e;
+  --color-felt-500: #0a5240;
+  --color-felt-400: #10614a;
+
+  /* ── Brand: gold ── */
+  --color-gold-600: #c9a03d;
+  --color-gold-500: #d9b45b;
+  --color-gold-300: #f0d48a;
+
+  /* ── Accent / semantic ── */
+  --color-accent-600: #2f9e6f;
+  --color-accent-400: #7ee4b8;
+  --color-danger-500: #e5484d;
+  --color-danger-300: #ff9aa0;
+  --color-success-500: #2f9e6f;
+  --color-success-300: #7ee4b8;
+
+  /* ── Neutrals ── */
+  --color-text: #eef2f6;
+  --color-muted: #9fb0c0;
+  --color-card-bg: #12181f;
+  --color-border: #2a3644;
+  --color-rail: #5b3b1e;
+
+  /* ── Surfaces ── */
+  --surface-inset: rgba(0, 0, 0, 0.28);
+  --surface-panel: rgba(6, 26, 20, 0.72);
+  --surface-elevated: linear-gradient(145deg, rgba(8, 38, 29, 0.92), rgba(4, 22, 17, 0.88));
+
+  /* ── Legacy aliases (keep existing pages working) ── */
+  --felt: var(--color-felt-600);
+  --felt-2: var(--color-felt-500);
+  --gold: var(--color-gold-500);
+  --card-bg: var(--color-card-bg);
+  --card-border: var(--color-border);
+  --text: var(--color-text);
+  --muted: var(--color-muted);
+  --danger: var(--color-danger-500);
+  --accent: var(--color-accent-600);
+
+  /* ── Typography ── */
+  --font-body: "Vazirmatn Variable", system-ui, sans-serif;
+  --text-xs: 0.68rem;
+  --text-sm: 0.78rem;
+  --text-base: 0.9rem;
+  --text-lg: 1.05rem;
+  --text-xl: 1.25rem;
+
+  /* ── Spacing ── */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+
+  /* ── Radius ── */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  /* ── Motion ── */
+  --duration-fast: 120ms;
+  --duration-normal: 200ms;
+  --ease-out: ease;
+}
