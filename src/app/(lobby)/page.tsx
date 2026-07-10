@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, fetchMe, invalidateMeCache, type Me } from "@/lib/client/api";
-import { Input, Field, Modal, LoadingScreen, Select } from "@/components/ui";
+import { Input, Field, Modal, LoadingScreen, Select, Tabs } from "@/components/ui";
 import type { TableConfig } from "@/lib/poker/types";
 
 interface TableSummary {
@@ -110,92 +110,77 @@ export default function LobbyPage() {
         <button onClick={logout} className="btn btn-ghost">خروج</button>
       </nav>
 
-      <div className="lobby-tabs" role="tablist" aria-label="بخش‌های لابی">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "tables"}
-          className={`lobby-tab${tab === "tables" ? " lobby-tab--active" : ""}`}
-          onClick={() => setTab("tables")}
-        >
-          میزها ({tables.length.toLocaleString("fa")})
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "tournaments"}
-          className={`lobby-tab${tab === "tournaments" ? " lobby-tab--active" : ""}`}
-          onClick={() => setTab("tournaments")}
-        >
-          تورنومنت‌ها
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "deposits"}
-          className={`lobby-tab${tab === "deposits" ? " lobby-tab--active" : ""}`}
-          onClick={() => setTab("deposits")}
-        >
-          خرید ژتون
-        </button>
-      </div>
-
-      {tab === "tables" && (
-        <section className="lobby-section" aria-labelledby="tables-heading">
-          {isAdmin && (
-            <button type="button" className="lobby-fab" onClick={() => setShowCreateTable(true)}>
-              <span aria-hidden>＋</span>
-              ساخت میز جدید
-            </button>
-          )}
-
-          <div className="lobby-grid">
-            {tables.length === 0 && (
-              <div className="panel empty-state">
-                <div className="empty-state-icon" aria-hidden>🃏</div>
-                <p className="empty-state-title">هنوز میزی باز نیست</p>
-                <p className="empty-state-desc">
-                  {isAdmin
-                    ? "روی «ساخت میز جدید» بزنید — فقط چند ثانیه طول می‌کشد."
-                    : "به‌زودی میز جدیدی اضافه می‌شود."}
-                </p>
+      <Tabs
+        ariaLabel="بخش‌های لابی"
+        activeId={tab}
+        onChange={(id) => setTab(id as typeof tab)}
+        tabs={[
+          {
+            id: "tables",
+            label: `میزها (${tables.length.toLocaleString("fa")})`,
+            panel: (
+              <section className="lobby-section" aria-labelledby="tables-heading">
                 {isAdmin && (
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    style={{ marginTop: "0.85rem" }}
-                    onClick={() => setShowCreateTable(true)}
-                  >
-                    ساخت اولین میز
+                  <button type="button" className="lobby-fab" onClick={() => setShowCreateTable(true)}>
+                    <span aria-hidden>＋</span>
+                    ساخت میز جدید
                   </button>
                 )}
-              </div>
-            )}
-            {tables.map((t) => (
-              <TableCard
-                key={t.id}
-                table={t}
+
+                <div className="lobby-grid">
+                  {tables.length === 0 && (
+                    <div className="panel empty-state">
+                      <div className="empty-state-icon" aria-hidden>🃏</div>
+                      <p className="empty-state-title">هنوز میزی باز نیست</p>
+                      <p className="empty-state-desc">
+                        {isAdmin
+                          ? "روی «ساخت میز جدید» بزنید — فقط چند ثانیه طول می‌کشد."
+                          : "به‌زودی میز جدیدی اضافه می‌شود."}
+                      </p>
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          style={{ marginTop: "0.85rem" }}
+                          onClick={() => setShowCreateTable(true)}
+                        >
+                          ساخت اولین میز
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {tables.map((t) => (
+                    <TableCard
+                      key={t.id}
+                      table={t}
+                      isAdmin={isAdmin}
+                      onEdit={() => setEditTable(t)}
+                      onClose={() => { setCloseError(""); setCloseTarget(t); }}
+                    />
+                  ))}
+                </div>
+              </section>
+            ),
+          },
+          {
+            id: "tournaments",
+            label: "تورنومنت‌ها",
+            panel: (
+              <TournamentsSection
                 isAdmin={isAdmin}
-                onEdit={() => setEditTable(t)}
-                onClose={() => { setCloseError(""); setCloseTarget(t); }}
+                onBalanceChange={refreshMe}
+                onCreateClick={() => setShowCreateTournament(true)}
+                refreshToken={tournamentRefresh}
               />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {tab === "tournaments" && (
-        <TournamentsSection
-          isAdmin={isAdmin}
-          onBalanceChange={refreshMe}
-          onCreateClick={() => setShowCreateTournament(true)}
-          refreshToken={tournamentRefresh}
-        />
-      )}
-
-      {tab === "deposits" && (
-        <ChipDepositsSection isAdmin={isAdmin} onBalanceChange={refreshMe} />
-      )}
+            ),
+          },
+          {
+            id: "deposits",
+            label: "خرید ژتون",
+            panel: <ChipDepositsSection isAdmin={isAdmin} onBalanceChange={refreshMe} />,
+          },
+        ]}
+      />
       </main>
 
       {showCreateTable && (
@@ -544,20 +529,24 @@ function TournamentsSection({
   refreshToken: number;
 }) {
   const [items, setItems] = useState<TournamentSummary[]>([]);
+  const [err, setErr] = useState("");
   const load = useCallback(() => api<{ tournaments: TournamentSummary[] }>("/api/tournaments").then((d) => setItems(d.tournaments)), []);
   useEffect(() => { load(); }, [load, refreshToken]);
 
   async function register(id: string) {
+    setErr("");
     try { await api(`/api/tournaments/${id}/register`, { method: "POST" }); load(); onBalanceChange(); }
-    catch (e) { alert((e as Error).message); }
+    catch (e) { setErr((e as Error).message); }
   }
   async function start(id: string) {
+    setErr("");
     try { await api(`/api/tournaments/${id}/start`, { method: "POST" }); load(); }
-    catch (e) { alert((e as Error).message); }
+    catch (e) { setErr((e as Error).message); }
   }
 
   return (
     <section className="lobby-section" aria-labelledby="tournaments-heading">
+      {err && <p className="login-error" role="alert">{err}</p>}
       {isAdmin && (
         <button type="button" className="lobby-fab lobby-fab--gold" onClick={onCreateClick}>
           <span aria-hidden>＋</span>

@@ -1,5 +1,7 @@
 "use client";
+import { useRef } from "react";
 import { useModalLock } from "./useModalLock";
+import { useFocusTrap } from "./useFocusTrap";
 
 interface ModalProps {
   title: string;
@@ -12,10 +14,13 @@ interface ModalProps {
 
 export function Modal({ title, subtitle, onClose, children, titleId = "modal-title", className = "" }: ModalProps) {
   useModalLock(onClose);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(cardRef);
 
   return (
     <div className="modal-backdrop" onClick={onClose} role="presentation">
       <div
+        ref={cardRef}
         className={`modal-card panel ${className}`.trim()}
         role="dialog"
         aria-modal="true"

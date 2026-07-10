@@ -90,6 +90,26 @@ function TournamentView({ d, now }: { d: TournamentDetail; now: number }) {
     <PageShell>
       <PageHeader title={`🏆 ${d.name}`} />
 
+      <div className="tournament-hero-banner">
+        <div>
+          <p className="tournament-hero-prize-label">مجموع جایزه</p>
+          <p className="tournament-hero-prize">{d.prizePool.toLocaleString("fa")}</p>
+        </div>
+        <div className="tournament-hero-side">
+          <span className={`tournament-hero-status${onBreak ? " tournament-hero-status--break" : ""}`}>
+            {STATUS_FA[d.status] ?? d.status}
+          </span>
+          {running && d.levelEndsAt && (
+            <div className="tournament-hero-timer" aria-live="polite">
+              {fmtCountdown(msLeft)}
+              <span className="tournament-hero-timer-label">
+                {onBreak ? "تا پایان استراحت" : next ? "تا سطح بعدی" : "سطح فعلی"}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
       {onBreak && (
         <div className="panel break-banner">
           ☕ استراحت{running && d.levelEndsAt ? ` — ادامه تا ${fmtCountdown(msLeft)}` : ""}

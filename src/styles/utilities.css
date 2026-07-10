@@ -43,8 +43,7 @@
 .modal-close:focus-visible,
 .pill-btn:focus-visible,
 .stakes-btn:focus-visible,
-.admin-tab:focus-visible,
-.lobby-tab:focus-visible,
+.ui-tab:focus-visible,
 .profile-pick-btn:focus-visible,
 .profile-back-btn:focus-visible,
 .profile-card-btn:focus-visible,
@@ -52,4 +51,16 @@
 .seat-empty-btn:focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

@@ -577,35 +577,6 @@
   border-color: rgba(47, 158, 111, 0.6);
 }
 
-.lobby-tabs {
-  display: flex;
-  gap: 0.35rem;
-  margin-bottom: 0.85rem;
-  padding: 0.25rem;
-  border-radius: 12px;
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.lobby-tab {
-  flex: 1;
-  padding: 0.5rem 0.65rem;
-  border-radius: 9px;
-  border: none;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.12s ease, color 0.12s ease;
-}
-
-.lobby-tab--active {
-  background: rgba(47, 158, 111, 0.18);
-  color: #7ee4b8;
-}
-
 @media (max-width: 520px) {
   .stakes-grid {
     grid-template-columns: 1fr;

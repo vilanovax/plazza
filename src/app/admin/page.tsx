@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
-import { Field, Input, LoadingScreen, Modal, PageHeader, PageShell, Select } from "@/components/ui";
+import { Field, Input, LoadingScreen, Modal, PageHeader, PageShell, Select, Tabs } from "@/components/ui";
 
 type Tab = "users" | "topups" | "settlements" | "settings";
 
@@ -23,29 +23,21 @@ export default function AdminPage() {
 
   if (!ok) return <LoadingScreen message="در حال بارگذاری پنل…" />;
 
-  const tabs: [Tab, string][] = [["users", "کاربران"], ["topups", "تاپ‌آپ"], ["settlements", "تسویه‌ها"], ["settings", "تنظیمات"]];
-
   return (
     <PageShell wide>
       <PageHeader title="پنل مدیریت" />
-      <div className="admin-tabs" role="tablist">
-        {tabs.map(([k, l]) => (
-          <button
-            key={k}
-            type="button"
-            role="tab"
-            aria-selected={tab === k}
-            className={`admin-tab${tab === k ? " admin-tab--active" : ""}`}
-            onClick={() => setTab(k)}
-          >
-            {l}
-          </button>
-        ))}
-      </div>
-      {tab === "users" && <UsersTab />}
-      {tab === "topups" && <TopupsTab />}
-      {tab === "settlements" && <SettlementsTab />}
-      {tab === "settings" && <SettingsTab />}
+      <Tabs
+        ariaLabel="بخش‌های مدیریت"
+        variant="gold"
+        activeId={tab}
+        onChange={(id) => setTab(id as Tab)}
+        tabs={[
+          { id: "users", label: "کاربران", panel: <UsersTab /> },
+          { id: "topups", label: "تاپ‌آپ", panel: <TopupsTab /> },
+          { id: "settlements", label: "تسویه‌ها", panel: <SettlementsTab /> },
+          { id: "settings", label: "تنظیمات", panel: <SettingsTab /> },
+        ]}
+      />
     </PageShell>
   );
 }
@@ -188,14 +180,17 @@ function CreditUserModal({
 interface Topup { id: string; userName: string; tableName: string; amount: number; }
 function TopupsTab() {
   const [items, setItems] = useState<Topup[]>([]);
+  const [err, setErr] = useState("");
   const load = useCallback(() => api<{ topups: Topup[] }>("/api/admin/topups").then((d) => setItems(d.topups)), []);
   useEffect(() => { load(); }, [load]);
   async function decide(id: string, status: "approved" | "rejected") {
-    try { await api(`/api/admin/topups/${id}/decide`, { method: "POST", body: { status } }); } catch (e) { alert((e as Error).message); }
-    load();
+    setErr("");
+    try { await api(`/api/admin/topups/${id}/decide`, { method: "POST", body: { status } }); load(); }
+    catch (e) { setErr((e as Error).message); }
   }
   return (
     <div style={{ display: "grid", gap: 6 }}>
+      {err && <p className="login-error" role="alert">{err}</p>}
       {items.length === 0 && <div className="panel admin-empty">درخواست معلقی وجود ندارد.</div>}
       {items.map((t) => (
         <div key={t.id} className="panel admin-topup-row">

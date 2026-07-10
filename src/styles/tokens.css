@@ -69,4 +69,7 @@
   --duration-fast: 120ms;
   --duration-normal: 200ms;
   --ease-out: ease;
+
+  /* ── Breakpoints (literal value required inside @media) ── */
+  --bp-sm: 520px;
 }

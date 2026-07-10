@@ -9,6 +9,7 @@ import { ChipStack } from "@/components/ChipStack";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { PlayingCard } from "@/components/PlayingCard";
 import { api, fetchMe, type Me } from "@/lib/client/api";
+import { MQ_LANDSCAPE_SHORT, MQ_SM_MAX } from "@/lib/breakpoints";
 import { Input, Modal, PageShell } from "@/components/ui";
 import type { PublicGameState, PlayerAction, TableConfig, LogEntry } from "@/lib/poker/types";
 
@@ -123,6 +124,8 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           </span>
         </div>
       </header>
+
+      <TableLiveRegion state={state} viewerSeat={viewerSeat} />
 
       {tourney && (
         <div className="panel table-tourney-banner">
@@ -289,8 +292,8 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
 function useTableLayout() {
   const [layout, setLayout] = useState({ compact: false, landscape: false });
   useEffect(() => {
-    const mqCompact = window.matchMedia("(max-width: 520px)");
-    const mqLandscape = window.matchMedia("(max-height: 520px) and (orientation: landscape)");
+    const mqCompact = window.matchMedia(MQ_SM_MAX);
+    const mqLandscape = window.matchMedia(MQ_LANDSCAPE_SHORT);
     const update = () => setLayout({
       compact: mqCompact.matches || mqLandscape.matches,
       landscape: mqLandscape.matches,
@@ -304,6 +307,21 @@ function useTableLayout() {
     };
   }, []);
   return layout;
+}
+
+function TableLiveRegion({ state, viewerSeat }: { state?: PublicGameState | null; viewerSeat: number | null }) {
+  if (!state) return null;
+  const parts: string[] = [PHASE_FA[state.phase] ?? state.phase];
+  if (state.pot > 0) parts.push(`پات ${state.pot.toLocaleString("fa")}`);
+  if (state.currentTurnSeat != null && state.phase !== "waiting" && state.phase !== "hand_complete") {
+    const name = state.seats[state.currentTurnSeat]?.name ?? "بازیکن";
+    parts.push(viewerSeat === state.currentTurnSeat ? "نوبت شماست" : `نوبت ${name}`);
+  }
+  return (
+    <div className="sr-only" aria-live="polite" aria-atomic="true">
+      {parts.join("، ")}
+    </div>
+  );
 }
 
 function seatPosition(

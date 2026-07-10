@@ -4,6 +4,17 @@ import { cardBackColor } from "@/lib/profile/presets";
 
 const RED_SUITS = new Set([1, 2]); // diamonds, hearts
 
+const RANK_NAMES_FA = [
+  "دو", "سه", "چهار", "پنج", "شش", "هفت", "هشت", "نه", "ده",
+  "سرباز", "بی‌بی", "شاه", "آس",
+] as const;
+
+const SUIT_NAMES_FA = ["گشنیز", "خشت", "دل", "پیک"] as const;
+
+function cardAriaLabel(card: Card): string {
+  return `${RANK_NAMES_FA[rankOf(card)]} ${SUIT_NAMES_FA[suitOf(card)]}`;
+}
+
 export function PlayingCard({
   card,
   small,
@@ -38,9 +49,9 @@ export function PlayingCard({
   const s = suitOf(card);
 
   return (
-    <div className={className}>
-      <span className="playing-card-rank">{r}</span>
-      <span className="playing-card-suit">{SUIT_SYMBOLS[s]}</span>
+    <div className={className} aria-label={cardAriaLabel(card)}>
+      <span className="playing-card-rank" aria-hidden>{r}</span>
+      <span className="playing-card-suit" aria-hidden>{SUIT_SYMBOLS[s]}</span>
     </div>
   );
 }

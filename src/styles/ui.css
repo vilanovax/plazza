@@ -67,7 +67,7 @@
   color: var(--gold);
 }
 
-.admin-tabs {
+.ui-tabs {
   display: flex;
   gap: 0.35rem;
   margin-bottom: 0.85rem;
@@ -78,7 +78,7 @@
   flex-wrap: wrap;
 }
 
-.admin-tab {
+.ui-tab {
   flex: 1;
   min-width: fit-content;
   padding: 0.5rem 0.65rem;
@@ -90,11 +90,27 @@
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
-.admin-tab--active {
+.ui-tab--active {
+  background: rgba(47, 158, 111, 0.18);
+  color: var(--color-accent-400);
+}
+
+.ui-tabs--gold .ui-tab--active {
   background: rgba(217, 180, 91, 0.18);
   color: var(--color-gold-300);
+}
+
+.ui-tabpanel {
+  outline: none;
+}
+
+.ui-tabpanel:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .list-row {
