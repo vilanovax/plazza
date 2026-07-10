@@ -72,7 +72,7 @@ export default function LobbyPage() {
         <div className="lobby-brand">
           <span className="lobby-logo" aria-hidden>♠</span>
           <div>
-            <h1 className="lobby-title">لابی پوکر</h1>
+            <h1 className="lobby-title">Plazza</h1>
             <p className="lobby-subtitle">خوش آمدید، {me.displayName}</p>
           </div>
         </div>

@@ -1,4 +1,4 @@
-# ♠ پوکر آنلاین دوستانه — Online Poker PWA
+# Plazza — Online Poker PWA
 
 اپلیکیشن پیش‌رونده وب (PWA) برای بازی پوکر **تگزاس هولدم** به‌صورت آنلاین با دوستان.
 بازی فقط با **ژتون** است (بدون پول واقعی) و حساب‌ها توسط **مدیر** کنترل می‌شوند.
@@ -62,9 +62,8 @@ Socket.IO handlers ──► GameManager (in-memory authority, 1 game/table)
 مهاجرت و ساخت ادمین همه خودکار انجام می‌شود.
 
 ```bash
-git clone https://github.com/vilanovax/vita.git poker
-cd poker
-git checkout claude/online-poker-pwa-2f19xn
+git clone https://github.com/vilanovax/plazza.git
+cd plazza
 docker compose up --build
 ```
 

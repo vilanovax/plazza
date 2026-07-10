@@ -1,4 +1,4 @@
-# Design Tokens — Poker PWA
+# Design Tokens — Plazza
 
 Design system for the online poker PWA. Tokens live in `src/app/globals.css` (`:root`). Shared UI primitives live in `src/components/ui/`.
 

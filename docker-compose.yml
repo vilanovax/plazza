@@ -1,4 +1,4 @@
-# One-command local stack: Postgres + the poker app (with auto migrate + seed).
+# One-command local stack: Postgres + Plazza (with auto migrate + seed).
 #   docker compose up --build
 # Then open http://localhost:3001  (login: admin / admin1234)
 services:

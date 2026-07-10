@@ -5,7 +5,7 @@
  * live table itself needs the network — offline mode only serves the app shell
  * and an offline notice.
  */
-const CACHE = "poker-shell-v1";
+const CACHE = "plazza-shell-v1";
 const SHELL = ["/", "/offline", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {

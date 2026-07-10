@@ -2,10 +2,10 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "پوکر آنلاین دوستانه",
+  title: "Plazza",
   description: "میز پوکر تگزاس هولدم آنلاین با دوستان — فقط ژتون",
   manifest: "/manifest.webmanifest",
-  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "پوکر" },
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Plazza" },
 };
 
 export const viewport: Viewport = {

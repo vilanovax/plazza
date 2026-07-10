@@ -9,5 +9,5 @@ npm run db:migrate
 echo "→ Seeding default admin..."
 npm run db:seed
 
-echo "→ Starting poker server..."
+echo "→ Starting Plazza server..."
 exec node .server/server.cjs

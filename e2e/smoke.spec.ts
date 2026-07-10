@@ -17,7 +17,7 @@ test.describe("Auth flow", () => {
     await page.getByRole("button", { name: "ورود", exact: true }).click();
 
     await expect(page).toHaveURL("/");
-    await expect(page.getByRole("heading", { name: "لابی پوکر" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Plazza" })).toBeVisible();
     await expect(page.getByText("موجودی ژتون")).toBeVisible();
   });
 

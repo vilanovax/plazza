@@ -46,7 +46,7 @@ export default function LoginPage() {
       <form onSubmit={submit} className="panel login-card">
         <div className="login-hero">
           <div className="login-logo" aria-hidden>♠</div>
-          <h1 className="login-title">پوکر دوستانه</h1>
+          <h1 className="login-title">Plazza</h1>
           <p className="login-subtitle">
             {mode === "login" ? "برای ورود حساب خود را وارد کنید" : "یک حساب جدید بسازید"}
           </p>

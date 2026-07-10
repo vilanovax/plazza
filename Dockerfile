@@ -1,4 +1,4 @@
-# Poker PWA — app image (build + custom Next/Socket.IO server).
+# Plazza — app image (build + custom Next/Socket.IO server).
 FROM node:20-slim
 
 WORKDIR /app
