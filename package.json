@@ -10,7 +10,9 @@
     "lint": "eslint",
     "db:migrate": "tsx db/migrate.ts",
     "db:seed": "tsx db/seed.ts",
-    "test": "node --import tsx --test src/lib/poker/*.test.ts src/lib/tournament/*.test.ts src/lib/profile/*.test.ts"
+    "test": "node --import tsx --test src/lib/poker/*.test.ts src/lib/tournament/*.test.ts src/lib/profile/*.test.ts",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "@fontsource-variable/vazirmatn": "^5.2.8",
@@ -24,6 +26,7 @@
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",

@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Field, Input, LoadingScreen, PageHeader, PageShell } from "@/components/ui";
 import { api, fetchMe } from "@/lib/client/api";
 import { RANKS, SUITS, SUIT_SYMBOLS, stringToCard } from "@/lib/poker/cards";
 import { PlayingCard } from "@/components/PlayingCard";
@@ -14,6 +15,7 @@ interface Profile {
   displayName: string; avatar: string; tagline: string; title: string;
   favoriteCards: string[]; cardBack: string; chipColor: string; emotes: string[]; statsPublic: boolean;
 }
+
 const RED = new Set([1, 2]); // diamonds, hearts
 
 export default function ProfilePage() {
@@ -41,6 +43,7 @@ export default function ProfilePage() {
     if (has) set("favoriteCards", p.favoriteCards.filter((c) => c !== code));
     else if (p.favoriteCards.length < MAX_FAVORITE_CARDS) set("favoriteCards", [...p.favoriteCards, code]);
   }
+
   function toggleEmote(e: string) {
     if (!p) return;
     const has = p.emotes.includes(e);
@@ -58,122 +61,237 @@ export default function ProfilePage() {
     finally { setSaving(false); }
   }
 
-  if (!p) return <main style={{ padding: 24 }}>در حال بارگذاری…</main>;
+  if (!p) return <LoadingScreen message="در حال بارگذاری پروفایل…" />;
+
+  const chipAccent = p.chipColor || "var(--gold)";
 
   return (
-    <main style={{ maxWidth: 640, margin: "0 auto", padding: 16 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <Link href="/" className="btn btn-ghost" style={{ padding: "0.3rem 0.7rem", fontSize: 13 }}>→ لابی</Link>
-        <h1 style={{ fontSize: 20, margin: 0 }}>پروفایل من</h1>
-        {myId ? <Link href={`/u/${myId}`} className="btn btn-ghost" style={{ padding: "0.3rem 0.7rem", fontSize: 13 }}>نمای عمومی</Link> : <span />}
-      </header>
+    <PageShell style={{ "--profile-chip": chipAccent } as React.CSSProperties}>
+      <PageHeader
+        title="پروفایل من"
+        right={myId ? (
+          <Link href={`/u/${myId}`} className="btn btn-ghost page-back" style={{ justifyContent: "flex-end" }}>
+            نمای عمومی
+          </Link>
+        ) : undefined}
+      />
 
-      {/* Preview */}
-      <div className="panel" style={{ padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ fontSize: 40, lineHeight: 1 }}>{p.avatar || "🙂"}</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 800, fontSize: 18 }}>{p.displayName || "—"} {p.title && <span style={{ color: "var(--gold)", fontSize: 13 }}>«{p.title}»</span>}</div>
-          {p.tagline && <div style={{ color: "var(--muted)", fontSize: 13 }}>“{p.tagline}”</div>}
-        </div>
-        <div style={{ display: "flex", gap: 4 }}>
-          {p.favoriteCards.map((c) => <PlayingCard key={c} card={stringToCard(c)} small />)}
-        </div>
-      </div>
-
-      <Field label="نام نمایشی">
-        <input value={p.displayName} maxLength={40} onChange={(e) => set("displayName", e.target.value)} style={input} />
-      </Field>
-
-      <Field label="آواتار">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {AVATARS.map((a) => (
-            <button key={a} onClick={() => set("avatar", p.avatar === a ? "" : a)} style={chip(p.avatar === a)}>{a}</button>
-          ))}
-        </div>
-      </Field>
-
-      <Field label={`لقب (${p.title.length}/${TITLE_MAX})`}>
-        <input value={p.title} maxLength={TITLE_MAX} placeholder="مثلاً سلطان بلوف" onChange={(e) => set("title", e.target.value)} style={input} />
-      </Field>
-
-      <Field label={`شعار (${p.tagline.length}/${TAGLINE_MAX})`}>
-        <input value={p.tagline} maxLength={TAGLINE_MAX} placeholder="مثلاً بلوف تخصص منه" onChange={(e) => set("tagline", e.target.value)} style={input} />
-      </Field>
-
-      <Field label={`دو کارت مورد علاقه (${p.favoriteCards.length}/${MAX_FAVORITE_CARDS})`}>
-        <div style={{ overflowX: "auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${RANKS.length}, 1fr)`, gap: 3, minWidth: 360 }}>
-            {SUITS.map((_, s) =>
-              RANKS.map((r) => {
-                const code = `${r}${SUITS[s]}`;
-                const sel = p.favoriteCards.includes(code);
-                return (
-                  <button key={code} onClick={() => toggleFavorite(code)}
-                    style={{ padding: "4px 0", fontSize: 12, borderRadius: 5, cursor: "pointer",
-                      border: sel ? "2px solid var(--gold)" : "1px solid var(--border,#3334)",
-                      background: sel ? "var(--gold)" : "#f6f7f9", color: RED.has(s) ? "#c0322d" : "#111", fontWeight: 700 }}
-                    title={code}>
-                    {r === "T" ? "10" : r}{SUIT_SYMBOLS[s]}
-                  </button>
-                );
-              })
+      {/* Player card preview */}
+      <section className="panel profile-hero" aria-label="پیش‌نمایش پروفایل">
+        <div className="profile-hero-top">
+          <div className="profile-avatar-wrap">
+            <div className="profile-avatar-ring">
+              <span className="profile-avatar-emoji">{p.avatar || "🙂"}</span>
+            </div>
+          </div>
+          <div className="profile-hero-info">
+            <h2 className="profile-hero-name">{p.displayName || "بازیکن"}</h2>
+            {p.title && <span className="profile-hero-title">{p.title}</span>}
+            {p.tagline ? (
+              <p className="profile-hero-tagline">«{p.tagline}»</p>
+            ) : (
+              <p className="profile-hero-tagline" style={{ opacity: 0.55 }}>شعار خود را اضافه کنید…</p>
             )}
           </div>
         </div>
-      </Field>
+        <div className="profile-hero-cards">
+          {p.favoriteCards.length > 0 ? (
+            p.favoriteCards.map((c) => (
+              <span key={c} className="playing-card-wrap">
+                <PlayingCard card={stringToCard(c)} />
+              </span>
+            ))
+          ) : (
+            <div className="profile-hero-cards-empty">دو کارت مورد علاقه را انتخاب کنید</div>
+          )}
+        </div>
+      </section>
 
-      <Field label="پشت کارت">
-        <div style={{ display: "flex", gap: 8 }}>
-          {CARD_BACKS.map((cb) => (
-            <button key={cb.id} onClick={() => set("cardBack", p.cardBack === cb.id ? "" : cb.id)}
-              style={{ width: 40, height: 54, borderRadius: 7, background: cb.color, cursor: "pointer",
-                border: p.cardBack === cb.id ? "3px solid var(--gold)" : "2px solid #0004" }} title={cb.name} />
+      {/* Identity */}
+      <section className="panel profile-section">
+        <div className="profile-section-head">
+          <span className="profile-section-icon" aria-hidden>♠</span>
+          <h3 className="profile-section-title">هویت بازیکن</h3>
+        </div>
+
+        <Field label="نام نمایشی" htmlFor="displayName">
+          <Input
+            id="displayName"
+            value={p.displayName}
+            maxLength={40}
+            onChange={(e) => set("displayName", e.target.value)}
+          />
+        </Field>
+
+        <Field label="آواتار">
+          <div className="profile-avatar-grid">
+            {AVATARS.map((a) => (
+              <button
+                key={a}
+                type="button"
+                className={`profile-pick-btn${p.avatar === a ? " profile-pick-btn--active" : ""}`}
+                onClick={() => set("avatar", p.avatar === a ? "" : a)}
+                aria-label={`آواتار ${a}`}
+                aria-pressed={p.avatar === a}
+              >
+                {a}
+              </button>
+            ))}
+          </div>
+        </Field>
+
+        <Field
+          label="لقب"
+          htmlFor="title"
+          counter={`${p.title.length.toLocaleString("fa")}/${TITLE_MAX.toLocaleString("fa")}`}
+        >
+          <Input
+            id="title"
+            value={p.title}
+            maxLength={TITLE_MAX}
+            placeholder="مثلاً سلطان بلوف"
+            onChange={(e) => set("title", e.target.value)}
+          />
+        </Field>
+
+        <Field
+          label="شعار"
+          htmlFor="tagline"
+          counter={`${p.tagline.length.toLocaleString("fa")}/${TAGLINE_MAX.toLocaleString("fa")}`}
+        >
+          <Input
+            id="tagline"
+            value={p.tagline}
+            maxLength={TAGLINE_MAX}
+            placeholder="مثلاً بلوف تخصص منه"
+            onChange={(e) => set("tagline", e.target.value)}
+          />
+        </Field>
+      </section>
+
+      {/* Cards */}
+      <section className="panel profile-section">
+        <div className="profile-section-head">
+          <span className="profile-section-icon" aria-hidden>🃏</span>
+          <h3 className="profile-section-title">
+            کارت‌های مورد علاقه
+            <span className="ui-counter" style={{ marginRight: "0.35rem" }}>
+              ({p.favoriteCards.length.toLocaleString("fa")}/{MAX_FAVORITE_CARDS.toLocaleString("fa")})
+            </span>
+          </h3>
+        </div>
+
+        <div className="profile-card-rack" role="group" aria-label="انتخاب کارت مورد علاقه">
+          {SUITS.map((_, s) => (
+            <div key={SUITS[s]} className="profile-card-suit-row">
+              {RANKS.map((r) => {
+                const code = `${r}${SUITS[s]}`;
+                const sel = p.favoriteCards.includes(code);
+                const full = !sel && p.favoriteCards.length >= MAX_FAVORITE_CARDS;
+                const label = r === "T" ? "10" : r;
+                return (
+                  <button
+                    key={code}
+                    type="button"
+                    className={`profile-card-btn profile-card-btn--${RED.has(s) ? "red" : "black"}${sel ? " profile-card-btn--active" : ""}`}
+                    onClick={() => toggleFavorite(code)}
+                    disabled={full}
+                    title={code}
+                    aria-pressed={sel}
+                  >
+                    {label}
+                    <br />
+                    {SUIT_SYMBOLS[s]}
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </div>
-      </Field>
+      </section>
 
-      <Field label="رنگ ژتون">
-        <div style={{ display: "flex", gap: 8 }}>
-          {CHIP_COLORS.map((c) => (
-            <button key={c} onClick={() => set("chipColor", p.chipColor === c ? "" : c)}
-              style={{ width: 30, height: 30, borderRadius: "50%", background: c, cursor: "pointer",
-                border: p.chipColor === c ? "3px solid var(--gold)" : "2px solid #0004" }} />
-          ))}
+      {/* Table style */}
+      <section className="panel profile-section">
+        <div className="profile-section-head">
+          <span className="profile-section-icon" aria-hidden>🎰</span>
+          <h3 className="profile-section-title">سبک میز</h3>
         </div>
-      </Field>
 
-      <Field label={`ایموت‌های سریع (${p.emotes.length}/${MAX_EMOTES})`}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {EMOTES.map((e) => (
-            <button key={e} onClick={() => toggleEmote(e)} style={chip(p.emotes.includes(e))}>{e}</button>
-          ))}
+        <div className="ui-field">
+          <div className="ui-label"><span>پشت کارت</span></div>
+          <div className="profile-backs" role="group" aria-label="انتخاب پشت کارت">
+            {CARD_BACKS.map((cb) => (
+              <button
+                key={cb.id}
+                type="button"
+                className={`profile-back-btn${p.cardBack === cb.id ? " profile-back-btn--active" : ""}`}
+                style={{ background: cb.color }}
+                onClick={() => set("cardBack", p.cardBack === cb.id ? "" : cb.id)}
+                title={cb.name}
+                aria-pressed={p.cardBack === cb.id}
+                aria-label={cb.name}
+              />
+            ))}
+          </div>
         </div>
-      </Field>
 
-      <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14, margin: "10px 0" }}>
-        <input type="checkbox" checked={p.statsPublic} onChange={(e) => set("statsPublic", e.target.checked)} />
+        <div className="ui-field">
+          <div className="ui-label"><span>رنگ ژتون</span></div>
+          <div className="profile-chips" role="group" aria-label="انتخاب رنگ ژتون">
+            {CHIP_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                className={`profile-chip-btn${p.chipColor === c ? " profile-chip-btn--active" : ""}`}
+                style={{ background: c }}
+                onClick={() => set("chipColor", p.chipColor === c ? "" : c)}
+                aria-pressed={p.chipColor === c}
+                aria-label={`رنگ ژتون ${c}`}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="ui-field">
+          <div className="ui-label">
+            <span>ایموت‌های سریع</span>
+            <span className="ui-counter">{p.emotes.length.toLocaleString("fa")}/{MAX_EMOTES.toLocaleString("fa")}</span>
+          </div>
+          <div className="profile-emote-grid">
+            {EMOTES.map((e) => (
+              <button
+                key={e}
+                type="button"
+                className={`profile-pick-btn${p.emotes.includes(e) ? " profile-pick-btn--active" : ""}`}
+                onClick={() => toggleEmote(e)}
+                aria-pressed={p.emotes.includes(e)}
+              >
+                {e}
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <label className="profile-toggle">
+        <input
+          type="checkbox"
+          checked={p.statsPublic}
+          onChange={(e) => set("statsPublic", e.target.checked)}
+        />
         نمایش آمار من به دیگران
       </label>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
-        <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? "در حال ذخیره…" : "ذخیره"}</button>
-        {msg && <span style={{ color: msg.includes("✓") ? "var(--accent)" : "var(--danger,#e33)", fontSize: 13 }}>{msg}</span>}
+      <div className="profile-save-bar">
+        <button className="btn btn-primary" onClick={save} disabled={saving} style={{ minWidth: "6.5rem" }}>
+          {saving ? "در حال ذخیره…" : "ذخیره پروفایل"}
+        </button>
+        {msg && (
+          <span className={`profile-save-msg${msg.includes("✓") ? " profile-save-msg--ok" : " profile-save-msg--err"}`}>
+            {msg}
+          </span>
+        )}
       </div>
-    </main>
+    </PageShell>
   );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: 14 }}>
-      <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 6 }}>{label}</div>
-      {children}
-    </div>
-  );
-}
-
-const input: React.CSSProperties = { width: "100%", padding: "0.5rem 0.7rem", borderRadius: 8, border: "1px solid var(--border,#3335)", background: "var(--panel,#1b1b1f)", color: "inherit", fontSize: 14 };
-function chip(active: boolean): React.CSSProperties {
-  return { fontSize: 20, width: 40, height: 40, borderRadius: 8, cursor: "pointer",
-    border: active ? "2px solid var(--gold)" : "1px solid var(--border,#3334)", background: active ? "#f0c94622" : "transparent" };
 }

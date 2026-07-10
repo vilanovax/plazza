@@ -7,6 +7,7 @@ import { useTableSounds } from "@/components/useTableSounds";
 import { DealerAvatar } from "@/components/DealerAvatar";
 import { PlayingCard } from "@/components/PlayingCard";
 import { api, fetchMe, type Me } from "@/lib/client/api";
+import { Input, Modal, PageShell } from "@/components/ui";
 import type { PublicGameState, PlayerAction, TableConfig, LogEntry } from "@/lib/poker/types";
 
 type PreAction = "fold" | "check_fold" | "check";
@@ -113,68 +114,67 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   }, [state, viewerSeat, preAction, act, clearPre]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
+  const compact = useCompactLayout();
+
   return (
-    <main style={{ maxWidth: 760, margin: "0 auto", padding: 12, minHeight: "100dvh", display: "flex", flexDirection: "column" }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <Link href="/" className="btn btn-ghost" style={{ padding: "0.3rem 0.7rem", fontSize: 13 }}>→ لابی</Link>
-        <div style={{ textAlign: "center" }}>
-          <div style={{ fontWeight: 800 }}>{state?.config.name ?? "میز"}</div>
-          <div style={{ color: "var(--muted)", fontSize: 12 }}>
+    <PageShell table>
+      <header className="table-header">
+        <Link href="/" className="btn btn-ghost page-back table-btn-sm">
+          <span aria-hidden>→</span>
+          لابی
+        </Link>
+        <div className="table-header-center">
+          <div className="table-header-title">{state?.config.name ?? "میز"}</div>
+          <div className="table-header-meta">
             {state ? `${PHASE_FA[state.phase]} · بلایند ${state.config.smallBlind}/${state.config.bigBlind}` : "…"}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="table-header-actions">
           <button
             onClick={toggleMute}
             aria-label={muted ? "روشن کردن صدا" : "قطع صدا"}
-            className="btn btn-ghost"
-            style={{ padding: "0.25rem 0.5rem", fontSize: 16, lineHeight: 1 }}
+            className="btn btn-ghost table-mute-btn"
           >
             {muted ? "🔇" : "🔊"}
           </button>
-          <span style={{ fontSize: 12, color: connected ? "var(--accent)" : "var(--danger)" }}>{connected ? "متصل" : "قطع"}</span>
+          <span className={`table-status ${connected ? "table-status--ok" : "table-status--err"}`}>
+            {connected ? "متصل" : "قطع"}
+          </span>
         </div>
       </header>
 
       {tourney && (
-        <div className="panel" style={{ padding: "6px 12px", marginBottom: 6, display: "flex", justifyContent: "space-between", alignItems: "center", borderColor: "var(--gold)", fontSize: 12 }}>
+        <div className="panel table-tourney-banner">
           <span>
             {tourney.onBreak ? "☕ استراحت" : `🏆 سطح ${tourney.level.toLocaleString("fa")} · بلایند ${tourney.sb.toLocaleString("fa")}/${tourney.bb.toLocaleString("fa")}${tourney.ante ? ` (آنته ${tourney.ante.toLocaleString("fa")})` : ""}`}
             {tourney.lateRegOpen && !tourney.onBreak ? " · 🕒 ثبت‌نام باز" : ""}
           </span>
-          <span style={{ color: "var(--gold)" }}>جایزه {tourney.prizePool.toLocaleString("fa")} · {tourney.playersLeft.toLocaleString("fa")} نفر</span>
+          <span className="table-tourney-prize">جایزه {tourney.prizePool.toLocaleString("fa")} · {tourney.playersLeft.toLocaleString("fa")} نفر</span>
         </div>
       )}
       {tourney?.canRebuy && (
-        <button className="btn btn-gold" style={{ marginBottom: 6 }} onClick={rebuy}>
+        <button className="btn btn-gold table-rebuy-btn" onClick={rebuy}>
           ری‌بای ({tourney.buyInChips.toLocaleString("fa")} چیپ)
         </button>
       )}
 
-      {/* Felt */}
-      <div style={{ position: "relative", flex: 1, minHeight: 420, margin: "8px 0" }}>
-        <div style={{
-          position: "absolute", inset: "6% 3%", borderRadius: "48%/40%",
-          background: "radial-gradient(120% 120% at 50% 30%, var(--felt-2), var(--felt) 60%, #06281d)",
-          border: "8px solid #5b3b1e", boxShadow: "inset 0 0 60px rgba(0,0,0,.5), 0 10px 30px rgba(0,0,0,.4)",
-        }} />
-        {/* Dealer avatar in the felt interior, above the community cards */}
-        <div style={{ position: "absolute", top: "20%", left: "50%", transform: "translateX(-50%)", zIndex: 2 }}>
+      <div className="table-felt-wrap">
+        <div className="table-felt" />
+        <div className="table-dealer-anchor">
           <DealerAvatar size={56} />
         </div>
-        {/* Center: pot + community */}
-        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
-          <div style={{ color: "var(--gold)", fontWeight: 800 }}>پات: {(state?.pot ?? 0).toLocaleString("fa")}</div>
-          <div style={{ display: "flex", gap: 5 }}>
+        <div className="table-center">
+          <div className="table-pot">پات: {(state?.pot ?? 0).toLocaleString("fa")}</div>
+          <div className="table-community">
             {[0, 1, 2, 3, 4].map((i) => {
               const c = state?.community[i];
-              return c != null ? <PlayingCard key={i} card={c} /> : <div key={i} style={{ width: 46, height: 64, borderRadius: 7, border: "1px dashed rgba(255,255,255,.12)" }} />;
+              return c != null ? <PlayingCard key={i} card={c} /> : <div key={i} className="table-card-slot" />;
             })}
           </div>
           {state?.lastResult && state.phase === "hand_complete" && (
-            <div style={{ marginTop: 6, textAlign: "center", fontSize: 13 }}>
+            <div className="table-hand-result">
               {state.lastResult.pots.map((p, i) => (
-                <div key={i} style={{ color: "var(--gold)" }}>
+                <div key={i} className="table-hand-result-line">
                   برنده: {p.winners.map((w) => `${state.seats[w.seatIndex]?.name ?? "?"} (+${w.amount.toLocaleString("fa")})`).join("، ")}
                   {p.winners[0]?.handName ? ` — ${p.winners[0].handName}` : ""}
                 </div>
@@ -183,15 +183,14 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           )}
         </div>
 
-        {/* Seats */}
         {Array.from({ length: seatCount }).map((_, i) => {
-          const pos = seatPosition(i, viewerSeat, seatCount);
+          const pos = seatPosition(i, viewerSeat, seatCount, compact);
           const seat = state?.seats[i];
           const isTurn = state?.currentTurnSeat === i;
           const isButton = state?.buttonSeat === i && state?.phase !== "waiting";
           const occupied = seat && seat.status !== "empty";
           return (
-            <div key={i} style={{ position: "absolute", left: `${pos.x}%`, top: `${pos.y}%`, transform: "translate(-50%,-50%)", width: 96 }}>
+            <div key={i} className="table-seat-slot" style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
               {occupied ? (
                 <SeatView
                   seat={seat!}
@@ -203,7 +202,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
                   onSelect={() => seat!.userId && setStatsFor({ userId: seat!.userId, name: seat!.name ?? "بازیکن", seatIndex: i })}
                 />
               ) : (
-                <button className="btn btn-ghost" style={{ width: "100%", fontSize: 12, padding: "0.5rem" }}
+                <button className="btn btn-ghost seat-empty-btn"
                   onClick={() => mySeat ? null : setSitSeat(i)} disabled={!!mySeat}>
                   {mySeat ? "خالی" : "نشستن"}
                 </button>
@@ -219,8 +218,8 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         )}
 
       {error && (
-        <div onClick={clearError} className="panel" style={{ padding: "0.6rem 1rem", marginBottom: 8, borderColor: "var(--danger)", color: "var(--danger)", cursor: "pointer" }}>
-          {error} <span style={{ float: "left", opacity: 0.6 }}>✕</span>
+        <div onClick={clearError} className="panel table-error-banner" role="alert">
+          {error} <span className="table-error-dismiss">✕</span>
         </div>
       )}
 
@@ -238,7 +237,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           requestExtraTime={requestExtraTime}
         />
       ) : (
-        <div className="panel" style={{ padding: 12, textAlign: "center", color: "var(--muted)" }}>
+        <div className="panel table-hint-panel">
           برای بازی روی یک صندلی خالی بزنید و بنشینید.
         </div>
       )}
@@ -273,15 +272,29 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           onClose={() => setStatsFor(null)}
         />
       )}
-    </main>
+    </PageShell>
   );
 }
 
-function seatPosition(index: number, viewerSeat: number | null, n: number) {
+function useCompactLayout() {
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 520px)");
+    const update = () => setCompact(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  return compact;
+}
+
+function seatPosition(index: number, viewerSeat: number | null, n: number, compact = false) {
   const anchor = viewerSeat ?? 0;
   const displayPos = ((index - anchor) % n + n) % n;
   const theta = Math.PI / 2 + (displayPos * 2 * Math.PI) / n;
-  return { x: 50 + 44 * Math.cos(theta), y: 50 + 43 * Math.sin(theta) };
+  const rx = compact ? 40 : 44;
+  const ry = compact ? 38 : 43;
+  return { x: 50 + rx * Math.cos(theta), y: 50 + ry * Math.sin(theta) };
 }
 
 function SeatView({ seat, isTurn, isButton, community, deadline, showdown, onSelect }: {
@@ -298,39 +311,27 @@ function SeatView({ seat, isTurn, isButton, community, deadline, showdown, onSel
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
       aria-label={onSelect ? `آمار ${seat.name ?? "بازیکن"}` : undefined}
-      style={{ textAlign: "center", opacity: folded ? 0.45 : 1, cursor: onSelect ? "pointer" : "default" }}
+      className={`seat-view${folded ? " seat-view--folded" : ""}${onSelect ? " seat-view--clickable" : ""}`}
     >
       {seat.betThisRound > 0 && (
-        <div style={{ color: "var(--gold)", fontSize: 12, marginBottom: 2 }}>شرط: {seat.betThisRound.toLocaleString("fa")}</div>
+        <div className="seat-bet">شرط: {seat.betThisRound.toLocaleString("fa")}</div>
       )}
-      {handName && (
-        <div style={{
-          fontSize: 10, fontWeight: 700, color: "#0b3d2e", background: "var(--gold)",
-          borderRadius: 6, padding: "1px 6px", marginBottom: 3, display: "inline-block",
-        }}>
-          {handName}
-        </div>
-      )}
+      {handName && <div className="seat-hand-badge">{handName}</div>}
       {showdown && seat.holeCards?.length && seat.tagline ? (
-        <div style={{ fontSize: 9, fontStyle: "italic", color: "var(--muted)", marginBottom: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>“{seat.tagline}”</div>
+        <div className="seat-tagline">“{seat.tagline}”</div>
       ) : null}
-      <div style={{ display: "flex", justifyContent: "center", gap: 3, marginBottom: 3, minHeight: 48 }}>
+      <div className="seat-cards">
         {seat.holeCards?.length ? seat.holeCards.map((c, i) => <PlayingCard key={i} card={c} small />) :
           seat.hasCards ? [0, 1].map((i) => <PlayingCard key={i} small hidden />) : null}
       </div>
-      <div className="panel" style={{
-        padding: "5px 6px", borderColor: isTurn ? "var(--gold)" : undefined,
-        boxShadow: isTurn ? "0 0 0 2px var(--gold)" : undefined, position: "relative",
-      }}>
-        <div style={{ fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+      <div className={`panel seat-panel${isTurn ? " seat-panel--turn" : ""}`}>
+        <div className="seat-name">
           {isButton ? "🅑 " : ""}{seat.avatar ? `${seat.avatar} ` : ""}{seat.name}{!seat.isConnected ? " ⚠" : ""}
         </div>
-        {seat.title && (
-          <div style={{ fontSize: 9, color: "var(--gold)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>«{seat.title}»</div>
-        )}
-        <div style={{ fontSize: 12, color: seat.chipColor || "var(--accent)" }}>{seat.stack.toLocaleString("fa")}</div>
-        {seat.status === "allin" && <div style={{ fontSize: 10, color: "var(--danger)" }}>آل‌این</div>}
-        {seat.sitOut && <div style={{ fontSize: 10, color: "var(--muted)" }}>سیت‌اوت</div>}
+        {seat.title && <div className="seat-title">«{seat.title}»</div>}
+        <div className="seat-stack" style={{ color: seat.chipColor || "var(--accent)" }}>{seat.stack.toLocaleString("fa")}</div>
+        {seat.status === "allin" && <div className="seat-tag-allin">آل‌این</div>}
+        {seat.sitOut && <div className="seat-tag-sitout">سیت‌اوت</div>}
         {isTurn && deadline && <Countdown deadline={deadline} />}
       </div>
     </div>
@@ -349,7 +350,7 @@ function Countdown({ deadline }: { deadline: number }) {
     };
   }, []);
   const left = now > 0 ? Math.max(0, Math.ceil((deadline - now) / 1000)) : null;
-  return <div style={{ position: "absolute", top: -6, left: -6, background: "var(--gold)", color: "#2a1e00", borderRadius: 10, fontSize: 11, fontWeight: 800, padding: "1px 6px" }}>{left ?? "•"}</div>;
+  return <div className="seat-countdown">{left ?? "•"}</div>;
 }
 
 function ChatPanel({ log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, onToggleMuteUser, onSend }: {
@@ -364,7 +365,19 @@ function ChatPanel({ log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, on
 }) {
   const [text, setText] = useState("");
   const [showPresets, setShowPresets] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 520px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  const collapsed = isMobile && !mobileOpen;
 
   // Hide muted players' chat/all-in lines; table events always show.
   const visible = log.filter((e) => {
@@ -392,23 +405,37 @@ function ChatPanel({ log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, on
   }
 
   return (
-    <div className="panel" style={{ marginTop: 8, padding: 8 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-        <span style={{ fontSize: 12, color: "var(--muted)" }}>گفتگو و رویدادها</span>
-        <button onClick={onToggleMuteAll} className="btn btn-ghost" style={{ fontSize: 11, padding: "0.1rem 0.5rem" }}>
-          {muteAll ? "🔕 صدای همه بسته" : "🔔 صدای چت باز"}
+    <div className={`panel chat-panel${collapsed ? " chat-panel--collapsed" : ""}`}>
+      <div
+        className="chat-panel-head"
+        onClick={isMobile ? () => setMobileOpen((o) => !o) : undefined}
+        onKeyDown={isMobile ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMobileOpen((o) => !o); } } : undefined}
+        role={isMobile ? "button" : undefined}
+        tabIndex={isMobile ? 0 : undefined}
+        aria-expanded={isMobile ? !collapsed : undefined}
+      >
+        <span className="chat-panel-title chat-panel-toggle">
+          {collapsed ? "💬 گفتگو و رویدادها" : "گفتگو و رویدادها"}
+        </span>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onToggleMuteAll(); }}
+          className="btn btn-ghost chat-panel-mute"
+        >
+          {muteAll ? (isMobile ? "🔕" : "🔕 صدای همه بسته") : (isMobile ? "🔔" : "🔔 صدای چت باز")}
         </button>
       </div>
-      <div ref={scrollRef} style={{ maxHeight: 130, overflowY: "auto", fontSize: 12 }}>
+      <div className="chat-panel-body">
+      <div ref={scrollRef} className="chat-scroll">
         {recent.map((e) => {
           const mine = e.author?.userId && e.author.userId === myId;
           if (e.kind === "chat") {
             return (
-              <div key={e.id} style={{ padding: "2px 0", lineHeight: 1.5, color: "var(--text)" }}>
-                <b style={{ color: mine ? "var(--gold)" : "var(--accent)" }}>{e.author?.name ?? "?"}:</b> {e.text}
+              <div key={e.id} className="chat-msg">
+                <b className={mine ? "chat-msg-author--mine" : "chat-msg-author--other"}>{e.author?.name ?? "?"}:</b> {e.text}
                 {!mine && e.author?.userId && (
                   <button onClick={() => onToggleMuteUser(e.author!.userId)} title="میوت این بازیکن"
-                    style={{ marginInlineStart: 6, fontSize: 10, background: "none", border: "none", cursor: "pointer", color: mutedUsers.has(e.author.userId) ? "var(--danger,#e33)" : "var(--muted)" }}>
+                    className={`chat-msg-mute${mutedUsers.has(e.author.userId) ? " chat-msg-mute--active" : ""}`}>
                     {mutedUsers.has(e.author.userId) ? "🔇" : "🔈"}
                   </button>
                 )}
@@ -416,41 +443,42 @@ function ChatPanel({ log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, on
             );
           }
           if (e.kind === "allin") {
-            return <div key={e.id} style={{ padding: "2px 0", fontWeight: 800, color: "var(--danger,#e33)" }}>⚡ {e.text}</div>;
+            return <div key={e.id} className="chat-msg-allin">⚡ {e.text}</div>;
           }
           return (
-            <div key={e.id} style={{ padding: "2px 0", lineHeight: 1.5, color: "var(--muted)" }}>
-              <span style={{ opacity: 0.55 }}>{new Date(e.ts).toLocaleTimeString("fa", { hour: "2-digit", minute: "2-digit" })}</span>
+            <div key={e.id} className="chat-msg-event">
+              <span className="chat-msg-time">{new Date(e.ts).toLocaleTimeString("fa", { hour: "2-digit", minute: "2-digit" })}</span>
               {" — "}{e.text}
             </div>
           );
         })}
       </div>
       {showPresets && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, margin: "6px 0" }}>
+        <div className="chat-chip-row">
           {QUICK_CHAT.map((q) => (
-            <button key={q} onClick={() => send(q)} className="btn btn-ghost" style={{ fontSize: 11, padding: "0.15rem 0.5rem" }}>{q}</button>
+            <button key={q} onClick={() => send(q)} className="btn btn-ghost chat-chip-btn">{q}</button>
           ))}
         </div>
       )}
       {emotes.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, margin: "6px 0" }}>
+        <div className="chat-chip-row">
           {emotes.map((e) => (
-            <button key={e} onClick={() => onSend(e)} style={{ fontSize: 18, padding: "0.1rem 0.35rem", borderRadius: 8, cursor: "pointer", border: "1px solid var(--border,#3334)", background: "transparent" }}>{e}</button>
+            <button key={e} onClick={() => onSend(e)} className="chat-emote-btn">{e}</button>
           ))}
         </div>
       )}
-      <div style={{ display: "flex", gap: 4, marginTop: 6 }}>
-        <button onClick={() => setShowPresets((s) => !s)} className="btn btn-ghost" style={{ padding: "0.3rem 0.5rem" }} title="جملات آماده">💬</button>
-        <input
+      <div className="chat-compose">
+        <button onClick={() => setShowPresets((s) => !s)} className="btn btn-ghost chat-compose-presets" title="جملات آماده">💬</button>
+        <Input
+          className="chat-compose-input"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") send(text); }}
           maxLength={200}
           placeholder="پیام…"
-          style={{ flex: 1, padding: "0.35rem 0.6rem", borderRadius: 8, border: "1px solid var(--border,#3335)", background: "var(--panel,#1b1b1f)", color: "inherit", fontSize: 13 }}
         />
-        <button onClick={() => send(text)} className="btn btn-primary" style={{ padding: "0.3rem 0.7rem" }}>ارسال</button>
+        <button onClick={() => send(text)} className="btn btn-primary chat-compose-send">ارسال</button>
+      </div>
       </div>
     </div>
   );
@@ -463,9 +491,8 @@ function AllInFlash({ log }: { log: LogEntry[] }) {
   const lastAllIn = [...log].reverse().find((e) => e.kind === "allin");
   if (!lastAllIn) return null;
   return (
-    <div key={lastAllIn.id} style={{ position: "fixed", inset: 0, display: "grid", placeItems: "center", pointerEvents: "none", zIndex: 80, animation: "allinflash 1.6s ease-out forwards" }}>
-      <style>{"@keyframes allinflash{0%{opacity:0;transform:scale(.7)}15%{opacity:1;transform:scale(1.05)}70%{opacity:1;transform:scale(1)}100%{opacity:0;transform:scale(1)}}"}</style>
-      <div style={{ fontSize: 40, fontWeight: 900, color: "#fff", textShadow: "0 0 24px #e33, 0 0 8px #e33", background: "rgba(180,20,40,.35)", padding: "14px 36px", borderRadius: 16 }}>
+    <div key={lastAllIn.id} className="allin-flash">
+      <div className="allin-flash-text">
         ⚡ {lastAllIn.author?.name ?? ""} — آل‌این! 🔥
       </div>
     </div>
@@ -482,9 +509,9 @@ function ShowCardsPrompt({ until, onShow }: { until: number; onShow: () => void 
   }, [until]);
   if (left !== null && left <= 0) return null;
   return (
-    <div className="panel" style={{ padding: 10, marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between", borderColor: "var(--gold)" }}>
-      <span style={{ fontSize: 13, color: "var(--muted)" }}>می‌خواهی کارت‌هایت را نشان دهی؟</span>
-      <button className="btn btn-gold" style={{ fontSize: 13 }} onClick={onShow}>
+    <div className="panel show-cards-prompt">
+      <span className="show-cards-prompt-text">می‌خواهی کارت‌هایت را نشان دهی؟</span>
+      <button className="btn btn-gold action-btn-sm" onClick={onShow}>
         نمایش کارت‌هایم{left !== null ? ` (${left.toLocaleString("fa")})` : ""}
       </button>
     </div>
@@ -518,32 +545,32 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreActio
   const [topupAmt, setTopupAmt] = useState(state.config.topUpMin || state.config.bigBlind * 20);
 
   return (
-    <div className="panel" style={{ padding: 10 }}>
+    <div className="panel action-bar">
       {myTurn ? (
         <>
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-            <button className="btn btn-danger" style={{ flex: 1 }} onClick={() => act({ type: "fold" })}>فولد</button>
+          <div className="action-row">
+            <button className="btn btn-danger action-btn-flex" onClick={() => act({ type: "fold" })}>فولد</button>
             {toCall === 0 ? (
-              <button className="btn btn-ghost" style={{ flex: 1 }} onClick={() => act({ type: "check" })}>چک</button>
+              <button className="btn btn-ghost action-btn-flex" onClick={() => act({ type: "check" })}>چک</button>
             ) : (
-              <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => act({ type: "call" })}>
+              <button className="btn btn-primary action-btn-flex" onClick={() => act({ type: "call" })}>
                 کال {toCall.toLocaleString("fa")}
               </button>
             )}
-            <button className="btn btn-gold" style={{ flex: 1 }} disabled={!canRaise}
+            <button className="btn btn-gold action-btn-flex" disabled={!canRaise}
               onClick={() => act(raiseTo >= maxTo ? { type: "allin" } : { type: state.currentBet > 0 ? "raise" : "bet", amount: raiseTo })}>
               {state.currentBet > 0 ? "رِیز" : "بِت"} {raiseTo.toLocaleString("fa")}
             </button>
           </div>
           {canRaise && (
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <input type="range" min={minRaiseTo} max={maxTo} value={raiseTo} step={state.config.smallBlind}
-                onChange={(e) => setRaiseTo(Number(e.target.value))} style={{ flex: 1 }} />
-              <button className="btn btn-ghost" style={{ fontSize: 12, padding: "0.35rem 0.6rem" }} onClick={() => setRaiseTo(maxTo)}>آل‌این</button>
+            <div className="action-raise-row">
+              <input type="range" className="action-raise-slider" min={minRaiseTo} max={maxTo} value={raiseTo} step={state.config.smallBlind}
+                onChange={(e) => setRaiseTo(Number(e.target.value))} />
+              <button className="btn btn-ghost action-btn-sm" onClick={() => setRaiseTo(maxTo)}>آل‌این</button>
             </div>
           )}
           {canExtraTime && (
-            <button className="btn btn-ghost" style={{ marginTop: 8, width: "100%", fontSize: 12 }} onClick={requestExtraTime}>
+            <button className="btn btn-ghost action-extra-time" onClick={requestExtraTime}>
               ⏱ زمان اضافه (+{state.config.extraTimeSec.toLocaleString("fa")} ثانیه)
             </button>
           )}
@@ -551,36 +578,35 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreActio
       ) : (
         <div>
           {mySeat.status === "active" && ["preflop", "flop", "turn", "river"].includes(state.phase) && (
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ color: "var(--muted)", fontSize: 11, marginBottom: 4 }}>اقدام از پیش (وقتی نوبتت شد خودکار اجرا می‌شود)</div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className={`btn ${preAction === "fold" ? "btn-danger" : "btn-ghost"}`} style={{ flex: 1, fontSize: 13 }} onClick={() => onPreAction("fold")}>فولد خودکار</button>
-                <button className={`btn ${preAction === "check_fold" ? "btn-gold" : "btn-ghost"}`} style={{ flex: 1, fontSize: 13 }} onClick={() => onPreAction("check_fold")}>چک/فولد</button>
-                <button className={`btn ${preAction === "check" ? "btn-primary" : "btn-ghost"}`} style={{ flex: 1, fontSize: 13 }} onClick={() => onPreAction("check")}>چک</button>
+            <div className="action-pre-section">
+              <div className="action-pre-label">اقدام از پیش (وقتی نوبتت شد خودکار اجرا می‌شود)</div>
+              <div className="action-row">
+                <button className={`btn action-btn-flex action-btn-sm ${preAction === "fold" ? "btn-danger" : "btn-ghost"}`} onClick={() => onPreAction("fold")}>فولد خودکار</button>
+                <button className={`btn action-btn-flex action-btn-sm ${preAction === "check_fold" ? "btn-gold" : "btn-ghost"}`} onClick={() => onPreAction("check_fold")}>چک/فولد</button>
+                <button className={`btn action-btn-flex action-btn-sm ${preAction === "check" ? "btn-primary" : "btn-ghost"}`} onClick={() => onPreAction("check")}>چک</button>
               </div>
             </div>
           )}
-          <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-            <div style={{ color: "var(--muted)", fontSize: 13 }}>
-              موجودی میز: <b style={{ color: "var(--accent)" }}>{mySeat.stack.toLocaleString("fa")}</b>
+          <div className="action-wait-row">
+            <div className="action-stack-label">
+              موجودی میز: <b className="action-stack-value">{mySeat.stack.toLocaleString("fa")}</b>
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button className={`btn ${mySeat.sitOut ? "btn-primary" : "btn-ghost"}`} style={{ fontSize: 13 }} onClick={() => sitOut(!mySeat.sitOut)}>
+            <div className="action-controls">
+              <button className={`btn action-btn-sm ${mySeat.sitOut ? "btn-primary" : "btn-ghost"}`} onClick={() => sitOut(!mySeat.sitOut)}>
                 {mySeat.sitOut ? "بازگشت به بازی" : "سیت‌اوت"}
               </button>
               {state.config.allowTopUp && (
-                <button className="btn btn-gold" style={{ fontSize: 13 }} onClick={() => setShowTopup((s) => !s)}>+ تاپ‌آپ</button>
+                <button className="btn btn-gold action-btn-sm" onClick={() => setShowTopup((s) => !s)}>+ تاپ‌آپ</button>
               )}
-              <button className="btn btn-ghost" style={{ fontSize: 13 }} onClick={leaveSeat}>خروج از میز</button>
+              <button className="btn btn-ghost action-btn-sm" onClick={leaveSeat}>خروج از میز</button>
             </div>
           </div>
         </div>
       )}
 
       {showTopup && (
-        <div style={{ display: "flex", gap: 8, marginTop: 10, alignItems: "center" }}>
-          <input type="number" value={topupAmt} onChange={(e) => setTopupAmt(Number(e.target.value))}
-            style={{ flex: 1, padding: "0.5rem", borderRadius: 8, border: "1px solid var(--card-border)", background: "rgba(0,0,0,.25)", color: "var(--text)" }} />
+        <div className="action-topup-row">
+          <Input type="number" className="action-topup-input" value={topupAmt} onChange={(e) => setTopupAmt(Number(e.target.value))} />
           <button className="btn btn-primary" onClick={() => { topup(topupAmt); setShowTopup(false); }}>درخواست</button>
         </div>
       )}
@@ -597,9 +623,9 @@ interface PlayerStats {
 }
 function StatRow({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,.08)" }}>
-      <span style={{ color: "var(--muted)" }}>{label}</span>
-      <b style={{ color: color ?? "var(--text)" }}>{value}</b>
+    <div className="stat-row">
+      <span className="stat-row-label">{label}</span>
+      <b style={color ? { color } : undefined}>{value}</b>
     </div>
   );
 }
@@ -615,50 +641,44 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
   }, [tableId, userId]);
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "center", zIndex: 60, padding: 20 }}>
-      <div onClick={(e) => e.stopPropagation()} className="panel" style={{ padding: 20, width: "100%", maxWidth: 340 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-          <h3 style={{ margin: 0 }}>📊 آمار {stats?.displayName ?? name}</h3>
-          <button onClick={onClose} className="btn btn-ghost" style={{ padding: "0.2rem 0.5rem" }}>✕</button>
+    <Modal title={`📊 آمار ${stats?.displayName ?? name}`} onClose={onClose} titleId="player-stats-title">
+      {stats?.profile && (stats.profile.avatar || stats.profile.title || stats.profile.tagline || stats.profile.favoriteCards.length > 0) && (
+        <div className="stats-hero">
+          {stats.profile.avatar && <div className="stats-hero-avatar">{stats.profile.avatar}</div>}
+          <div className="stats-hero-body">
+            {stats.profile.title && <div className="stats-hero-title">«{stats.profile.title}»</div>}
+            {stats.profile.tagline && <div className="stats-hero-tagline">“{stats.profile.tagline}”</div>}
+          </div>
+          <div className="stats-hero-cards">
+            {stats.profile.favoriteCards.map((c) => <PlayingCard key={c} card={stringToCard(c)} small />)}
+          </div>
         </div>
-        {stats?.profile && (stats.profile.avatar || stats.profile.title || stats.profile.tagline || stats.profile.favoriteCards.length > 0) && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid rgba(255,255,255,.08)" }}>
-            {stats.profile.avatar && <div style={{ fontSize: 32 }}>{stats.profile.avatar}</div>}
-            <div style={{ flex: 1 }}>
-              {stats.profile.title && <div style={{ color: "var(--gold)", fontSize: 13, fontWeight: 700 }}>«{stats.profile.title}»</div>}
-              {stats.profile.tagline && <div style={{ color: "var(--muted)", fontSize: 12 }}>“{stats.profile.tagline}”</div>}
-            </div>
-            <div style={{ display: "flex", gap: 3 }}>
-              {stats.profile.favoriteCards.map((c) => <PlayingCard key={c} card={stringToCard(c)} small />)}
-            </div>
-          </div>
-        )}
-        <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>آمار این بازیکن در این میز</div>
-        {err && <div style={{ color: "var(--danger)" }}>{err}</div>}
-        {!stats && !err && <div style={{ color: "var(--muted)" }}>در حال بارگذاری…</div>}
-        {stats && stats.statsPublic === false && (
-          <div style={{ color: "var(--muted)", fontSize: 13 }}>این بازیکن آمار خود را خصوصی کرده است.</div>
-        )}
-        {stats && stats.statsPublic !== false && stats.handsPlayed !== undefined && (
-          <div>
-            <StatRow label="دست‌های برنده / کل" value={`${(stats.handsWon ?? 0).toLocaleString("fa")} / ${(stats.handsPlayed ?? 0).toLocaleString("fa")}`} />
-            <StatRow label="درصد برد" value={`${(stats.winRate ?? 0).toLocaleString("fa")}٪`} color="var(--gold)" />
-            <StatRow label="کل ژتون خریداری‌شده" value={(stats.totalBought ?? 0).toLocaleString("fa")} color="var(--accent)" />
-            <StatRow label="تعداد دفعات خرید" value={(stats.buyInCount ?? 0).toLocaleString("fa")} />
-            <StatRow label="سود/زیان خالص" value={`${(stats.net ?? 0) >= 0 ? "+" : ""}${(stats.net ?? 0).toLocaleString("fa")}`} color={(stats.net ?? 0) >= 0 ? "var(--accent)" : "var(--danger)"} />
-          </div>
-        )}
-        <Link href={`/u/${userId}`} className="btn btn-ghost" style={{ display: "block", textAlign: "center", width: "100%", marginTop: 12, fontSize: 13 }}>
-          پروفایل کامل و افتخارات →
-        </Link>
-        {canKick && onKick && (
-          <button className="btn btn-danger" style={{ width: "100%", marginTop: 8 }}
-            onClick={() => { if (confirm(`${name} از میز حذف شود؟`)) onKick(); }}>
-            حذف از میز (کیک)
-          </button>
-        )}
-      </div>
-    </div>
+      )}
+      <div className="info-cell-label stats-section-label">آمار این بازیکن در این میز</div>
+      {err && <p className="login-error">{err}</p>}
+      {!stats && !err && <p className="empty-state-desc">در حال بارگذاری…</p>}
+      {stats && stats.statsPublic === false && (
+        <p className="empty-state-desc">این بازیکن آمار خود را خصوصی کرده است.</p>
+      )}
+      {stats && stats.statsPublic !== false && stats.handsPlayed !== undefined && (
+        <div>
+          <StatRow label="دست‌های برنده / کل" value={`${(stats.handsWon ?? 0).toLocaleString("fa")} / ${(stats.handsPlayed ?? 0).toLocaleString("fa")}`} />
+          <StatRow label="درصد برد" value={`${(stats.winRate ?? 0).toLocaleString("fa")}٪`} color="var(--gold)" />
+          <StatRow label="کل ژتون خریداری‌شده" value={(stats.totalBought ?? 0).toLocaleString("fa")} color="var(--accent)" />
+          <StatRow label="تعداد دفعات خرید" value={(stats.buyInCount ?? 0).toLocaleString("fa")} />
+          <StatRow label="سود/زیان خالص" value={`${(stats.net ?? 0) >= 0 ? "+" : ""}${(stats.net ?? 0).toLocaleString("fa")}`} color={(stats.net ?? 0) >= 0 ? "var(--accent)" : "var(--danger)"} />
+        </div>
+      )}
+      <Link href={`/u/${userId}`} className="btn btn-ghost stats-profile-link">
+        پروفایل کامل و افتخارات →
+      </Link>
+      {canKick && onKick && (
+        <button className="btn btn-danger stats-kick-btn"
+          onClick={() => { if (confirm(`${name} از میز حذف شود؟`)) onKick(); }}>
+          حذف از میز (کیک)
+        </button>
+      )}
+    </Modal>
   );
 }
 
@@ -670,26 +690,25 @@ function SitDialog({ seat, config, balance, onCancel, onSit }: {
   const [buyIn, setBuyIn] = useState(Math.min(config.maxBuyIn, Math.max(config.minBuyIn, maxAllowed)));
   const insufficient = balance < config.minBuyIn;
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", display: "grid", placeItems: "center", zIndex: 50, padding: 20 }}>
-      <div className="panel" style={{ padding: 20, width: "100%", maxWidth: 340 }}>
-        <h3 style={{ marginTop: 0 }}>نشستن روی صندلی {(seat + 1).toLocaleString("fa")}</h3>
-        <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 10 }}>
-          موجودی ژتون شما: {balance.toLocaleString("fa")} · ورود مجاز {config.minBuyIn.toLocaleString("fa")}–{config.maxBuyIn.toLocaleString("fa")}
-        </div>
-        {insufficient ? (
-          <div style={{ color: "var(--danger)", fontSize: 14 }}>موجودی شما برای ورود کافی نیست. از مدیر ژتون بخواهید.</div>
-        ) : (
-          <>
-            <input type="range" min={config.minBuyIn} max={maxAllowed} step={config.bigBlind} value={buyIn}
-              onChange={(e) => setBuyIn(Number(e.target.value))} style={{ width: "100%" }} />
-            <div style={{ textAlign: "center", fontWeight: 800, color: "var(--gold)", margin: "6px 0 12px" }}>{buyIn.toLocaleString("fa")} ژتون</div>
-          </>
-        )}
-        <div style={{ display: "flex", gap: 8 }}>
-          <button className="btn btn-ghost" style={{ flex: 1 }} onClick={onCancel}>انصراف</button>
-          <button className="btn btn-primary" style={{ flex: 1 }} disabled={insufficient} onClick={() => onSit(buyIn)}>نشستن</button>
-        </div>
+    <Modal
+      title={`نشستن روی صندلی ${(seat + 1).toLocaleString("fa")}`}
+      subtitle={`موجودی ژتون شما: ${balance.toLocaleString("fa")} · ورود مجاز ${config.minBuyIn.toLocaleString("fa")}–${config.maxBuyIn.toLocaleString("fa")}`}
+      onClose={onCancel}
+      titleId="sit-dialog-title"
+    >
+      {insufficient ? (
+        <p className="login-error">موجودی شما برای ورود کافی نیست. از مدیر ژتون بخواهید.</p>
+      ) : (
+        <>
+          <input type="range" className="sit-dialog-range" min={config.minBuyIn} max={maxAllowed} step={config.bigBlind} value={buyIn}
+            onChange={(e) => setBuyIn(Number(e.target.value))} />
+          <div className="sit-dialog-amount">{buyIn.toLocaleString("fa")} ژتون</div>
+        </>
+      )}
+      <div className="sit-dialog-actions">
+        <button className="btn btn-ghost" onClick={onCancel}>انصراف</button>
+        <button className="btn btn-primary" disabled={insufficient} onClick={() => onSit(buyIn)}>نشستن</button>
       </div>
-    </div>
+    </Modal>
   );
 }

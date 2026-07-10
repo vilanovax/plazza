@@ -1,0 +1,36 @@
+"use client";
+import { useModalLock } from "./useModalLock";
+
+interface ModalProps {
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  titleId?: string;
+  className?: string;
+}
+
+export function Modal({ title, subtitle, onClose, children, titleId = "modal-title", className = "" }: ModalProps) {
+  useModalLock(onClose);
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} role="presentation">
+      <div
+        className={`modal-card panel ${className}`.trim()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-head">
+          <div>
+            <h2 id={titleId} className="modal-title">{title}</h2>
+            {subtitle && <p className="modal-subtitle">{subtitle}</p>}
+          </div>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="بستن">×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}

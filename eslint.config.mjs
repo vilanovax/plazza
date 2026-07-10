@@ -12,9 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Generated server bundle + one-off scripts.
+    // Generated server bundle.
     ".server/**",
-    "e2e-test.mjs",
   ]),
 ]);
 

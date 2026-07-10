@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, fetchMe, type Me } from "@/lib/client/api";
+import { Input, Field, Modal, LoadingScreen } from "@/components/ui";
 
 interface TableSummary {
   id: string;
@@ -12,19 +13,36 @@ interface TableSummary {
   maxSeats: number;
 }
 
+const STAKES = [
+  { id: "low", label: "آرام", blinds: "۵/۱۰", sb: 5, bb: 10, minBuyIn: 200, maxBuyIn: 2000 },
+  { id: "mid", label: "معمولی", blinds: "۱۰/۲۰", sb: 10, bb: 20, minBuyIn: 400, maxBuyIn: 4000 },
+  { id: "high", label: "تند", blinds: "۲۵/۵۰", sb: 25, bb: 50, minBuyIn: 1000, maxBuyIn: 10000 },
+] as const;
+
+function SeatDots({ seated, max }: { seated: number; max: number }) {
+  return (
+    <div className="seat-dots" aria-label={`${seated} از ${max} صندلی پر`}>
+      {Array.from({ length: max }, (_, i) => (
+        <span key={i} className={`seat-dot${i < seated ? " seat-dot--filled" : ""}`} />
+      ))}
+    </div>
+  );
+}
+
 export default function LobbyPage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [tables, setTables] = useState<TableSummary[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
+  const [tab, setTab] = useState<"tables" | "tournaments">("tables");
+  const [showCreateTable, setShowCreateTable] = useState(false);
+  const [showCreateTournament, setShowCreateTournament] = useState(false);
+  const [tournamentRefresh, setTournamentRefresh] = useState(0);
 
   const load = useCallback(async () => {
     const { tables } = await api<{ tables: TableSummary[] }>("/api/tables");
     setTables(tables);
   }, []);
 
-  // Re-fetch the current user (e.g. after a tournament buy-in debits chips) so
-  // the header balance stays in sync.
   const refreshMe = useCallback(async () => {
     const u = await fetchMe();
     if (u) setMe(u);
@@ -43,64 +61,136 @@ export default function LobbyPage() {
     router.replace("/login");
   }
 
-  if (!me) return <main style={{ padding: 24 }}>در حال بارگذاری…</main>;
+  if (!me) return <LoadingScreen message="در حال بارگذاری لابی…" />;
+
+  const isAdmin = me.role === "admin";
 
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: 16 }}>
-      <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <div>
-          <div style={{ fontSize: 20, fontWeight: 800 }}>♠ لابی پوکر</div>
-          <div style={{ color: "var(--muted)", fontSize: 13 }}>خوش آمدید، {me.displayName}</div>
-        </div>
-        <div style={{ textAlign: "left" }}>
-          <div style={{ color: "var(--gold)", fontWeight: 800, fontSize: 18 }}>{me.chipBalance.toLocaleString("fa")} ژتون</div>
-          <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-            <Link href="/profile" className="btn btn-ghost" style={{ fontSize: 13, padding: "0.35rem 0.7rem" }}>
-              پروفایل
-            </Link>
-            <Link href="/account" className="btn btn-ghost" style={{ fontSize: 13, padding: "0.35rem 0.7rem" }}>
-              حساب من
-            </Link>
-            {me.role === "admin" && (
-              <Link href="/admin" className="btn btn-gold" style={{ fontSize: 13, padding: "0.35rem 0.7rem" }}>
-                مدیریت
-              </Link>
-            )}
-            <button onClick={logout} className="btn btn-ghost" style={{ fontSize: 13, padding: "0.35rem 0.7rem" }}>
-              خروج
-            </button>
+    <>
+      <main className="lobby">
+      <header className="lobby-header">
+        <div className="lobby-brand">
+          <span className="lobby-logo" aria-hidden>♠</span>
+          <div>
+            <h1 className="lobby-title">لابی پوکر</h1>
+            <p className="lobby-subtitle">خوش آمدید، {me.displayName}</p>
           </div>
+        </div>
+        <div className="lobby-wallet">
+          <span className="lobby-wallet-label">موجودی ژتون</span>
+          <span className="lobby-wallet-amount">{me.chipBalance.toLocaleString("fa")}</span>
         </div>
       </header>
 
-      {me.role === "admin" && (
-        <button className="btn btn-primary" style={{ marginBottom: 12 }} onClick={() => setShowCreate((s) => !s)}>
-          + ساخت میز جدید
+      <nav className="lobby-nav" aria-label="منوی حساب">
+        <Link href="/profile" className="btn btn-ghost">پروفایل</Link>
+        <Link href="/account" className="btn btn-ghost">حساب من</Link>
+        {isAdmin && <Link href="/admin" className="btn btn-gold">مدیریت</Link>}
+        <button onClick={logout} className="btn btn-ghost">خروج</button>
+      </nav>
+
+      <div className="lobby-tabs" role="tablist" aria-label="بخش‌های لابی">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "tables"}
+          className={`lobby-tab${tab === "tables" ? " lobby-tab--active" : ""}`}
+          onClick={() => setTab("tables")}
+        >
+          میزها ({tables.length.toLocaleString("fa")})
         </button>
-      )}
-
-      {showCreate && <CreateTable onDone={() => { setShowCreate(false); load(); }} />}
-
-      <div style={{ display: "grid", gap: 10 }}>
-        {tables.length === 0 && <div className="panel" style={{ padding: 20, color: "var(--muted)" }}>هنوز میزی وجود ندارد.</div>}
-        {tables.map((t) => (
-          <Link key={t.id} href={`/table/${t.id}`} className="panel" style={{ padding: 16, display: "flex", justifyContent: "space-between", alignItems: "center", textDecoration: "none", color: "var(--text)" }}>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 17 }}>{t.name}</div>
-              <div style={{ color: "var(--muted)", fontSize: 13 }}>
-                بلایند {t.config.smallBlind}/{t.config.bigBlind} · ورود {t.config.minBuyIn.toLocaleString("fa")}–{t.config.maxBuyIn.toLocaleString("fa")}
-              </div>
-            </div>
-            <div style={{ textAlign: "center" }}>
-              <div style={{ fontWeight: 800 }}>{t.seated}/{t.maxSeats}</div>
-              <div style={{ color: "var(--accent)", fontSize: 13 }}>ورود ←</div>
-            </div>
-          </Link>
-        ))}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "tournaments"}
+          className={`lobby-tab${tab === "tournaments" ? " lobby-tab--active" : ""}`}
+          onClick={() => setTab("tournaments")}
+        >
+          تورنومنت‌ها
+        </button>
       </div>
 
-      <TournamentsSection isAdmin={me.role === "admin"} onBalanceChange={refreshMe} />
-    </main>
+      {tab === "tables" && (
+        <section className="lobby-section" aria-labelledby="tables-heading">
+          {isAdmin && (
+            <button type="button" className="lobby-fab" onClick={() => setShowCreateTable(true)}>
+              <span aria-hidden>＋</span>
+              ساخت میز جدید
+            </button>
+          )}
+
+          <div className="lobby-grid">
+            {tables.length === 0 && (
+              <div className="panel empty-state">
+                <div className="empty-state-icon" aria-hidden>🃏</div>
+                <p className="empty-state-title">هنوز میزی باز نیست</p>
+                <p className="empty-state-desc">
+                  {isAdmin
+                    ? "روی «ساخت میز جدید» بزنید — فقط چند ثانیه طول می‌کشد."
+                    : "به‌زودی میز جدیدی اضافه می‌شود."}
+                </p>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    style={{ marginTop: "0.85rem" }}
+                    onClick={() => setShowCreateTable(true)}
+                  >
+                    ساخت اولین میز
+                  </button>
+                )}
+              </div>
+            )}
+            {tables.map((t) => (
+              <Link key={t.id} href={`/table/${t.id}`} className="panel table-card">
+                <div>
+                  <div className="table-card-name">{t.name}</div>
+                  <div className="table-card-meta">
+                    <span className="meta-pill meta-pill--gold">
+                      بلایند {t.config.smallBlind.toLocaleString("fa")}/{t.config.bigBlind.toLocaleString("fa")}
+                    </span>
+                    <span className="meta-pill">
+                      ورود {t.config.minBuyIn.toLocaleString("fa")}–{t.config.maxBuyIn.toLocaleString("fa")}
+                    </span>
+                  </div>
+                </div>
+                <div className="table-card-side">
+                  <SeatDots seated={t.seated} max={t.maxSeats} />
+                  <span className="table-card-enter">
+                    ورود
+                    <span aria-hidden>←</span>
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {tab === "tournaments" && (
+        <TournamentsSection
+          isAdmin={isAdmin}
+          onBalanceChange={refreshMe}
+          onCreateClick={() => setShowCreateTournament(true)}
+          refreshToken={tournamentRefresh}
+        />
+      )}
+      </main>
+
+      {showCreateTable && (
+        <CreateTableModal
+          onClose={() => setShowCreateTable(false)}
+          onDone={() => { setShowCreateTable(false); load(); }}
+        />
+      )}
+
+      {showCreateTournament && (
+        <CreateTournamentModal
+          onClose={() => setShowCreateTournament(false)}
+          onDone={() => { setShowCreateTournament(false); setTournamentRefresh((t) => t + 1); }}
+        />
+      )}
+    </>
   );
 }
 
@@ -109,11 +199,48 @@ interface TournamentSummary {
   maxPlayers: number; registered: number; prizePool: number; payouts: number[]; lateRegOpen?: boolean; registeredByMe?: boolean;
 }
 
-function TournamentsSection({ isAdmin, onBalanceChange }: { isAdmin: boolean; onBalanceChange: () => void }) {
+const STATUS_FA: Record<string, string> = {
+  scheduled: "در انتظار",
+  running: "در حال اجرا",
+  finishing: "در حال پایان",
+  finished: "پایان‌یافته",
+  cancelled: "لغو",
+};
+
+function statusBadgeClass(status: string) {
+  if (status === "scheduled") return "status-badge status-badge--scheduled";
+  if (status === "running" || status === "finishing") return "status-badge status-badge--running";
+  if (status === "cancelled") return "status-badge status-badge--cancelled";
+  return "status-badge status-badge--finished";
+}
+
+const TOURNAMENT_PRESETS = [
+  { id: "quick", label: "سریع", sub: "۶ نفر · ۱۰ دقیقه", buyIn: 1000, stack: 1500, maxPlayers: 6, startBigBlind: 20, levelMinutes: 10, levels: 12 },
+  { id: "standard", label: "استاندارد", sub: "۹ نفر · ۱۲ دقیقه", buyIn: 2000, stack: 3000, maxPlayers: 9, startBigBlind: 25, levelMinutes: 12, levels: 15 },
+  { id: "big", label: "بزرگ", sub: "۹ نفر · ۱۵ دقیقه", buyIn: 5000, stack: 8000, maxPlayers: 9, startBigBlind: 50, levelMinutes: 15, levels: 18 },
+] as const;
+
+const PAYOUT_OPTIONS = [
+  { id: "", label: "خودکار" },
+  { id: "winner-takes-all", label: "۱۰۰٪" },
+  { id: "70-30", label: "۷۰/۳۰" },
+  { id: "50-30-20", label: "۵۰/۳۰/۲۰" },
+] as const;
+
+function TournamentsSection({
+  isAdmin,
+  onBalanceChange,
+  onCreateClick,
+  refreshToken,
+}: {
+  isAdmin: boolean;
+  onBalanceChange: () => void;
+  onCreateClick: () => void;
+  refreshToken: number;
+}) {
   const [items, setItems] = useState<TournamentSummary[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
   const load = useCallback(() => api<{ tournaments: TournamentSummary[] }>("/api/tournaments").then((d) => setItems(d.tournaments)), []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, refreshToken]);
 
   async function register(id: string) {
     try { await api(`/api/tournaments/${id}/register`, { method: "POST" }); load(); onBalanceChange(); }
@@ -124,144 +251,365 @@ function TournamentsSection({ isAdmin, onBalanceChange }: { isAdmin: boolean; on
     catch (e) { alert((e as Error).message); }
   }
 
-  const STATUS_FA: Record<string, string> = { scheduled: "در انتظار", running: "در حال اجرا", finishing: "در حال پایان", finished: "پایان‌یافته", cancelled: "لغو" };
-
   return (
-    <section style={{ marginTop: 22 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-        <h2 style={{ fontSize: 17, margin: 0 }}>🏆 تورنومنت‌ها</h2>
-        {isAdmin && <button className="btn btn-gold" style={{ fontSize: 13 }} onClick={() => setShowCreate((s) => !s)}>+ ساخت تورنومنت</button>}
-      </div>
-      {showCreate && <CreateTournament onDone={() => { setShowCreate(false); load(); }} />}
-      <div style={{ display: "grid", gap: 8 }}>
-        {items.length === 0 && <div className="panel" style={{ padding: 16, color: "var(--muted)" }}>تورنومنتی وجود ندارد.</div>}
-        {items.map((t) => (
-          <div key={t.id} className="panel" style={{ padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontWeight: 700 }}>{t.name}</div>
-              <div style={{ color: "var(--muted)", fontSize: 12 }}>
-                {STATUS_FA[t.status] ?? t.status} · ورودی {t.buyInChips.toLocaleString("fa")} · استک {t.startingStack.toLocaleString("fa")} · {t.registered.toLocaleString("fa")}/{t.maxPlayers.toLocaleString("fa")} نفر · جوایز {t.payouts.join("/")}٪
-              </div>
-              <div style={{ color: "var(--gold)", fontSize: 12 }}>مجموع جایزه: {t.prizePool.toLocaleString("fa")}</div>
-            </div>
-            <div style={{ display: "flex", gap: 6 }}>
-              {t.status === "scheduled" && <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>ثبت‌نام</button>}
-              {t.status === "running" && t.lateRegOpen && !t.registeredByMe && <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>ثبت‌نام با تأخیر</button>}
-              {t.status === "scheduled" && isAdmin && <button className="btn btn-gold" style={{ fontSize: 12 }} onClick={() => start(t.id)}>شروع</button>}
-              {t.status === "running" && <Link href={`/tournament/${t.id}`} className="btn btn-ghost" style={{ fontSize: 12 }}>مشاهده</Link>}
-            </div>
+    <section className="lobby-section" aria-labelledby="tournaments-heading">
+      {isAdmin && (
+        <button type="button" className="lobby-fab lobby-fab--gold" onClick={onCreateClick}>
+          <span aria-hidden>＋</span>
+          ساخت تورنومنت
+        </button>
+      )}
+
+      <div className="lobby-grid">
+        {items.length === 0 && (
+          <div className="panel empty-state">
+            <div className="empty-state-icon" aria-hidden>🏆</div>
+            <p className="empty-state-title">تورنومنتی برنامه‌ریزی نشده</p>
+            <p className="empty-state-desc">
+              {isAdmin ? "یک تورنومنت بسازید و بازیکنان را دعوت کنید." : "به‌محض شروع تورنومنت، اینجا نمایش داده می‌شود."}
+            </p>
+            {isAdmin && (
+              <button type="button" className="btn btn-gold" style={{ marginTop: "0.85rem" }} onClick={onCreateClick}>
+                ساخت اولین تورنومنت
+              </button>
+            )}
           </div>
-        ))}
+        )}
+        {items.map((t) => {
+          const pct = t.maxPlayers > 0 ? Math.min(100, (t.registered / t.maxPlayers) * 100) : 0;
+          return (
+            <article key={t.id} className="panel tournament-card-v2">
+              <div className="tournament-card-top">
+                <div className="tournament-trophy" aria-hidden>🏆</div>
+                <div className="tournament-card-body">
+                  <span className={statusBadgeClass(t.status)}>{STATUS_FA[t.status] ?? t.status}</span>
+                  <div className="table-card-name">{t.name}</div>
+                  <div className="table-card-meta">
+                    <span className="meta-pill meta-pill--gold">ورودی {t.buyInChips.toLocaleString("fa")}</span>
+                    <span className="meta-pill">استک {t.startingStack.toLocaleString("fa")}</span>
+                    <span className="meta-pill">جایزه {t.prizePool.toLocaleString("fa")}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="tournament-progress-wrap">
+                <div className="tournament-progress-label">
+                  <span>ثبت‌نام</span>
+                  <span>{t.registered.toLocaleString("fa")}/{t.maxPlayers.toLocaleString("fa")} نفر</span>
+                </div>
+                <div className="tournament-progress-bar" aria-hidden>
+                  <div className="tournament-progress-fill" style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+
+              <div className="tournament-actions">
+                {(t.status === "scheduled" || t.status === "running" || t.status === "finished") && (
+                  <Link href={`/tournament/${t.id}`} className="btn btn-ghost" style={{ fontSize: 12 }}>
+                    جزئیات
+                  </Link>
+                )}
+                {t.status === "scheduled" && (
+                  <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>
+                    ثبت‌نام
+                  </button>
+                )}
+                {t.status === "running" && t.lateRegOpen && !t.registeredByMe && (
+                  <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => register(t.id)}>
+                    ثبت‌نام با تأخیر
+                  </button>
+                )}
+                {t.status === "scheduled" && isAdmin && (
+                  <button className="btn btn-gold" style={{ fontSize: 12 }} onClick={() => start(t.id)}>
+                    شروع
+                  </button>
+                )}
+                {t.status === "running" && (
+                  <Link href={`/tournament/${t.id}`} className="btn btn-primary" style={{ fontSize: 12 }}>
+                    ورود
+                  </Link>
+                )}
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
 }
 
-function CreateTournament({ onDone }: { onDone: () => void }) {
-  const [f, setF] = useState({
-    name: "تورنومنت جدید", buyInChips: 1000, startingStack: 1500, maxPlayers: 6,
-    startBigBlind: 20, levelMinutes: 10, levels: 15,
-    rebuyAllowed: true, rebuyMaxCount: -1, rebuyThroughLevel: 4, payoutPreset: "",
-    lateRegThroughLevel: 0, breakEveryLevels: 0, breakMinutes: 5,
-  });
+function CreateTableModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [stakeId, setStakeId] = useState<(typeof STAKES)[number]["id"]>("low");
+  const [name, setName] = useState("");
+  const [maxSeats, setMaxSeats] = useState(6);
+  const [thinkTimeSec, setThinkTimeSec] = useState(30);
+  const [advanced, setAdvanced] = useState(false);
+  const [ante, setAnte] = useState(0);
+  const [rakePercent, setRakePercent] = useState(0);
+  const [rakeCap, setRakeCap] = useState(0);
   const [err, setErr] = useState("");
-  async function create() {
-    setErr("");
-    try {
-      const body = { ...f, payoutPreset: f.payoutPreset || undefined };
-      await api("/api/tournaments", { method: "POST", body });
-      onDone();
-    } catch (e) { setErr((e as Error).message); }
-  }
-  const num = (label: string, k: keyof typeof f) => (
-    <label style={{ fontSize: 12, color: "var(--muted)" }}>{label}
-      <input type="number" value={f[k] as number} onChange={(e) => setF({ ...f, [k]: Number(e.target.value) })} style={miniInput} /></label>
-  );
-  return (
-    <div className="panel" style={{ padding: 16, marginBottom: 12 }}>
-      <label style={{ fontSize: 12, color: "var(--muted)" }}>نام
-        <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} style={miniInput} /></label>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
-        {num("ورودی (چیپ)", "buyInChips")}
-        {num("استک شروع", "startingStack")}
-        {num("حداکثر بازیکن", "maxPlayers")}
-        {num("بیگ‌بلایند شروع", "startBigBlind")}
-        {num("دقیقه هر سطح", "levelMinutes")}
-        {num("تعداد سطوح", "levels")}
-        {num("حداکثر ری‌بای (۱-=نامحدود)", "rebuyMaxCount")}
-        {num("ری‌بای تا سطح", "rebuyThroughLevel")}
-        {num("ثبت‌نام با تأخیر تا سطح (۰=خاموش)", "lateRegThroughLevel")}
-        {num("استراحت هر چند سطح (۰=خاموش)", "breakEveryLevels")}
-        {num("دقیقهٔ استراحت", "breakMinutes")}
-        <label style={{ fontSize: 12, color: "var(--muted)" }}>تقسیم جایزه
-          <select value={f.payoutPreset} onChange={(e) => setF({ ...f, payoutPreset: e.target.value })} style={miniInput}>
-            <option value="">پیش‌فرض (بر اساس تعداد)</option>
-            <option value="winner-takes-all">۱۰۰ (نفر اول)</option>
-            <option value="70-30">۷۰/۳۰</option>
-            <option value="60-40">۶۰/۴۰</option>
-            <option value="50-30-20">۵۰/۳۰/۲۰</option>
-            <option value="40-30-20-10">۴۰/۳۰/۲۰/۱۰</option>
-          </select>
-        </label>
-        <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-          <input type="checkbox" checked={f.rebuyAllowed} onChange={(e) => setF({ ...f, rebuyAllowed: e.target.checked })} />ری‌بای مجاز
-        </label>
-      </div>
-      {err && <div style={{ color: "var(--danger)", fontSize: 13, marginTop: 8 }}>{err}</div>}
-      <button className="btn btn-primary" style={{ marginTop: 12, width: "100%" }} onClick={create}>ایجاد تورنومنت</button>
-    </div>
-  );
-}
+  const [busy, setBusy] = useState(false);
 
-function CreateTable({ onDone }: { onDone: () => void }) {
-  const [f, setF] = useState({
-    name: "میز جدید", smallBlind: 5, bigBlind: 10, maxSeats: 6, ante: 0,
-    minBuyIn: 200, maxBuyIn: 2000, thinkTimeSec: 30, rakePercent: 0, rakeCap: 0,
-    topUpMin: 100, topUpMax: 2000, tableDurationMin: 0,
-  });
-  const [err, setErr] = useState("");
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setF({ ...f, [k]: k === "name" ? e.target.value : Number(e.target.value) });
+  const stake = STAKES.find((s) => s.id === stakeId) ?? STAKES[0];
+  const tableName = name.trim() || "میز جدید";
 
   async function create() {
     setErr("");
+    setBusy(true);
     try {
-      await api("/api/tables", { method: "POST", body: f });
+      await api("/api/tables", {
+        method: "POST",
+        body: {
+          name: tableName,
+          smallBlind: stake.sb,
+          bigBlind: stake.bb,
+          minBuyIn: stake.minBuyIn,
+          maxBuyIn: stake.maxBuyIn,
+          maxSeats,
+          thinkTimeSec,
+          ante,
+          rakePercent,
+          rakeCap,
+        },
+      });
       onDone();
-    } catch (e) { setErr((e as Error).message); }
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   }
 
-  const field = (label: string, k: keyof typeof f, type = "number") => (
-    <label style={{ fontSize: 12, color: "var(--muted)" }}>
-      {label}
-      <input type={type} value={f[k] as number | string} onChange={set(k)} style={miniInput} />
-    </label>
-  );
-
   return (
-    <div className="panel" style={{ padding: 16, marginBottom: 12 }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        {field("نام میز", "name", "text")}
-        {field("تعداد صندلی", "maxSeats")}
-        {field("اسمال بلایند", "smallBlind")}
-        {field("بیگ بلایند", "bigBlind")}
-        {field("آنته", "ante")}
-        {field("زمان فکر (ثانیه)", "thinkTimeSec")}
-        {field("حداقل ورود", "minBuyIn")}
-        {field("حداکثر ورود", "maxBuyIn")}
-        {field("درصد میز (rake)", "rakePercent")}
-        {field("سقف rake", "rakeCap")}
-        {field("حداقل تاپ‌آپ", "topUpMin")}
-        {field("حداکثر تاپ‌آپ", "topUpMax")}
-        {field("مدت میز (دقیقه، ۰=نامحدود)", "tableDurationMin")}
-      </div>
-      {err && <div style={{ color: "var(--danger)", marginTop: 8, fontSize: 13 }}>{err}</div>}
-      <button className="btn btn-primary" style={{ marginTop: 12, width: "100%" }} onClick={create}>ایجاد میز</button>
-    </div>
+    <Modal
+      title="ساخت میز جدید"
+      subtitle="سه مرحله ساده — بقیه تنظیمات خودکار است"
+      onClose={onClose}
+      titleId="create-table-title"
+    >
+        <div className="create-preview">
+          <span className="meta-pill meta-pill--gold">بلایند {stake.blinds}</span>
+          <span className="meta-pill">ورود {stake.minBuyIn.toLocaleString("fa")}–{stake.maxBuyIn.toLocaleString("fa")}</span>
+          <span className="meta-pill">{maxSeats.toLocaleString("fa")} نفره</span>
+          <span className="meta-pill">{thinkTimeSec.toLocaleString("fa")}ث فکر</span>
+        </div>
+
+        <Field label="نام میز (اختیاری)" htmlFor="table-name">
+          <Input id="table-name" value={name} placeholder="میز جدید" onChange={(e) => setName(e.target.value)} />
+        </Field>
+
+        <div className="ui-field">
+          <div className="ui-label"><span>سطح بازی</span></div>
+          <div className="stakes-grid" role="group" aria-label="سطح بلایند">
+            {STAKES.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`stakes-btn${stakeId === s.id ? " stakes-btn--active" : ""}`}
+                onClick={() => setStakeId(s.id)}
+                aria-pressed={stakeId === s.id}
+              >
+                <span className="stakes-btn-label">{s.label}</span>
+                <span className="stakes-btn-blinds">{s.blinds}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="ui-field">
+          <div className="ui-label"><span>تعداد صندلی</span></div>
+          <div className="pill-row" role="group" aria-label="تعداد صندلی">
+            {[2, 6, 9].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`pill-btn${maxSeats === n ? " pill-btn--active" : ""}`}
+                onClick={() => setMaxSeats(n)}
+                aria-pressed={maxSeats === n}
+              >
+                {n.toLocaleString("fa")} نفره
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="ui-field">
+          <div className="ui-label"><span>زمان فکر</span></div>
+          <div className="pill-row" role="group" aria-label="زمان فکر">
+            {[20, 30, 45].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className={`pill-btn${thinkTimeSec === n ? " pill-btn--active" : ""}`}
+                onClick={() => setThinkTimeSec(n)}
+                aria-pressed={thinkTimeSec === n}
+              >
+                {n.toLocaleString("fa")} ثانیه
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="create-advanced-toggle"
+          onClick={() => setAdvanced((v) => !v)}
+          aria-expanded={advanced}
+        >
+          <span>تنظیمات پیشرفته</span>
+          <span aria-hidden>{advanced ? "▲" : "▼"}</span>
+        </button>
+
+        {advanced && (
+          <div className="create-advanced-grid">
+            <label>آنته
+              <input className="ui-input" type="number" min={0} value={ante} onChange={(e) => setAnte(Number(e.target.value))} />
+            </label>
+            <label>درصد rake
+              <input className="ui-input" type="number" min={0} max={20} value={rakePercent} onChange={(e) => setRakePercent(Number(e.target.value))} />
+            </label>
+            <label>سقف rake
+              <input className="ui-input" type="number" min={0} value={rakeCap} onChange={(e) => setRakeCap(Number(e.target.value))} />
+            </label>
+          </div>
+        )}
+
+        {err && <p className="create-error">{err}</p>}
+
+        <button type="button" className="btn btn-primary create-submit" onClick={create} disabled={busy}>
+          {busy ? "در حال ساخت…" : `ساخت «${tableName}»`}
+        </button>
+    </Modal>
   );
 }
 
-const miniInput: React.CSSProperties = {
-  width: "100%", marginTop: 4, padding: "0.45rem 0.5rem", borderRadius: 8,
-  border: "1px solid var(--card-border)", background: "rgba(0,0,0,.25)", color: "var(--text)",
-};
+function CreateTournamentModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [presetId, setPresetId] = useState<(typeof TOURNAMENT_PRESETS)[number]["id"]>("quick");
+  const [name, setName] = useState("");
+  const [payoutPreset, setPayoutPreset] = useState<(typeof PAYOUT_OPTIONS)[number]["id"]>("");
+  const [rebuyAllowed, setRebuyAllowed] = useState(true);
+  const [advanced, setAdvanced] = useState(false);
+  const [lateRegThroughLevel, setLateRegThroughLevel] = useState(0);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const preset = TOURNAMENT_PRESETS.find((p) => p.id === presetId) ?? TOURNAMENT_PRESETS[0];
+  const tournamentName = name.trim() || "تورنومنت جدید";
+
+  async function create() {
+    setErr("");
+    setBusy(true);
+    try {
+      await api("/api/tournaments", {
+        method: "POST",
+        body: {
+          name: tournamentName,
+          buyInChips: preset.buyIn,
+          startingStack: preset.stack,
+          maxPlayers: preset.maxPlayers,
+          startBigBlind: preset.startBigBlind,
+          levelMinutes: preset.levelMinutes,
+          levels: preset.levels,
+          payoutPreset: payoutPreset || undefined,
+          rebuyAllowed,
+          rebuyMaxCount: -1,
+          rebuyThroughLevel: 4,
+          lateRegThroughLevel,
+          breakEveryLevels: 0,
+          breakMinutes: 5,
+        },
+      });
+      onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="ساخت تورنومنت"
+      subtitle="یک الگو انتخاب کنید — بقیه خودکار تنظیم می‌شود"
+      onClose={onClose}
+      titleId="create-tournament-title"
+    >
+        <div className="create-preview">
+          <span className="meta-pill meta-pill--gold">ورودی {preset.buyIn.toLocaleString("fa")}</span>
+          <span className="meta-pill">استک {preset.stack.toLocaleString("fa")}</span>
+          <span className="meta-pill">{preset.maxPlayers.toLocaleString("fa")} نفره</span>
+          <span className="meta-pill">بیگ‌بلایند {preset.startBigBlind.toLocaleString("fa")}</span>
+        </div>
+
+        <Field label="نام تورنومنت (اختیاری)" htmlFor="tournament-name">
+          <Input id="tournament-name" value={name} placeholder="تورنومنت جدید" onChange={(e) => setName(e.target.value)} />
+        </Field>
+
+        <div className="ui-field">
+          <div className="ui-label"><span>نوع تورنومنت</span></div>
+          <div className="stakes-grid" role="group" aria-label="نوع تورنومنت">
+            {TOURNAMENT_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={`stakes-btn${presetId === p.id ? " stakes-btn--active" : ""}`}
+                onClick={() => setPresetId(p.id)}
+                aria-pressed={presetId === p.id}
+              >
+                <span className="stakes-btn-label">{p.label}</span>
+                <span className="stakes-btn-blinds">{p.sub}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="ui-field">
+          <div className="ui-label"><span>تقسیم جایزه</span></div>
+          <div className="payout-grid" role="group" aria-label="تقسیم جایزه">
+            {PAYOUT_OPTIONS.map((p) => (
+              <button
+                key={p.id || "auto"}
+                type="button"
+                className={`payout-btn${payoutPreset === p.id ? " payout-btn--active" : ""}`}
+                onClick={() => setPayoutPreset(p.id)}
+                aria-pressed={payoutPreset === p.id}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <label className="create-toggle-row">
+          <span>ری‌بای مجاز تا سطح ۴</span>
+          <input type="checkbox" checked={rebuyAllowed} onChange={(e) => setRebuyAllowed(e.target.checked)} />
+        </label>
+
+        <button
+          type="button"
+          className="create-advanced-toggle"
+          onClick={() => setAdvanced((v) => !v)}
+          aria-expanded={advanced}
+        >
+          <span>تنظیمات پیشرفته</span>
+          <span aria-hidden>{advanced ? "▲" : "▼"}</span>
+        </button>
+
+        {advanced && (
+          <div className="create-advanced-grid">
+            <label>ثبت‌نام با تأخیر تا سطح (۰=خاموش)
+              <input className="ui-input" type="number" min={0} max={preset.levels} value={lateRegThroughLevel} onChange={(e) => setLateRegThroughLevel(Number(e.target.value))} />
+            </label>
+            <label>دقیقه هر سطح
+              <input className="ui-input" type="number" min={1} value={preset.levelMinutes} disabled />
+            </label>
+          </div>
+        )}
+
+        {err && <p className="create-error">{err}</p>}
+
+        <button type="button" className="btn btn-gold create-submit" onClick={create} disabled={busy}>
+          {busy ? "در حال ساخت…" : `ساخت «${tournamentName}»`}
+        </button>
+    </Modal>
+  );
+}

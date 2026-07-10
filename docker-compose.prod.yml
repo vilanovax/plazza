@@ -1,0 +1,25 @@
+# Production overlay — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+#
+# Create a .env file next to this compose file with strong secrets:
+#   AUTH_SECRET=<openssl rand -base64 48>
+#   SEED_ADMIN_PASSWORD=<strong password, set once on first deploy>
+services:
+  app:
+    environment:
+      AUTH_SECRET: ${AUTH_SECRET:?Set AUTH_SECRET in .env}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:?Set SEED_ADMIN_PASSWORD in .env}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\"",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  db:
+    restart: unless-stopped

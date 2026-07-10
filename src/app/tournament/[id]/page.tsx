@@ -3,6 +3,7 @@ import { use, useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
+import { LoadingScreen, PageHeader, PageShell } from "@/components/ui";
 
 interface Entry { userId: string; name: string; status: string; chips: number; place: number | null; rebuys: number; prize: number; }
 interface Level { level: number; sb: number; bb: number; ante: number; minutes: number; isBreak?: boolean }
@@ -62,12 +63,13 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
     return () => clearInterval(t);
   }, []);
 
-  if (!d)
+  if (!d) {
     return (
-      <main style={{ padding: 24 }}>
-        {err ? <span style={{ color: "var(--danger, #e33)" }}>{err}</span> : "در حال بارگذاری…"}
-      </main>
+      <PageShell>
+        {err ? <p className="login-error" role="alert">{err}</p> : <LoadingScreen message="در حال بارگذاری تورنومنت…" />}
+      </PageShell>
     );
+  }
 
   const running = d.status === "running";
   const cur = d.blindSchedule.find((l) => l.level === d.currentLevel);
@@ -105,19 +107,16 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
   });
 
   return (
-    <main style={{ maxWidth: 640, margin: "0 auto", padding: 16 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-        <Link href="/" className="btn btn-ghost" style={{ padding: "0.3rem 0.7rem", fontSize: 13 }}>→ لابی</Link>
-        <h1 style={{ fontSize: 19, margin: 0 }}>🏆 {d.name}</h1>
-      </header>
+    <PageShell>
+      <PageHeader title={`🏆 ${d.name}`} />
 
       {onBreak && (
-        <div className="panel" style={{ padding: 12, marginBottom: 12, textAlign: "center", fontWeight: 800, color: "var(--gold)" }}>
+        <div className="panel break-banner">
           ☕ استراحت{running && d.levelEndsAt ? ` — ادامه تا ${fmtCountdown(msLeft)}` : ""}
         </div>
       )}
 
-      <div className="panel" style={{ padding: 16, marginBottom: 14, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+      <section className="panel tournament-hero-panel info-grid">
         <Info label="وضعیت" value={STATUS_FA[d.status] ?? d.status} />
         <Info
           label={onBreak ? "استراحت" : "سطح فعلی"}
@@ -140,48 +139,51 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
         <Info label="مجموع جایزه" value={d.prizePool.toLocaleString("fa")} gold />
         <Info label="تقسیم جایزه" value={payouts.join("/") + "٪"} />
         {lateRegOpen && (
-          <div style={{ gridColumn: "1 / -1", color: "var(--accent)", fontSize: 13, fontWeight: 700 }}>
+          <p style={{ gridColumn: "1 / -1", color: "var(--color-accent-400)", fontSize: "var(--text-sm)", fontWeight: 700 }}>
             🕒 ثبت‌نام با تأخیر تا پایان سطح {lateReg.toLocaleString("fa")} باز است
-          </div>
+          </p>
         )}
         {running && d.tableId && (
           <div style={{ gridColumn: "1 / -1" }}>
             <Link href={`/table/${d.tableId}`} className="btn btn-primary" style={{ display: "block", textAlign: "center" }}>ورود به میز تورنومنت →</Link>
           </div>
         )}
-      </div>
+      </section>
 
       {paidPlaces > 0 && (
-        <div className="panel" style={{ padding: "12px 16px", marginBottom: 14 }}>
-          <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 6 }}>جوایز</div>
-          <div style={{ display: "grid", gap: 4 }}>
+        <section className="panel profile-section">
+          <div className="profile-section-head">
+            <h3 className="profile-section-title">جوایز</h3>
+          </div>
+          <div className="tournament-leaderboard">
             {payouts.map((p, i) => (
-              <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
-                <span>{`رتبه ${(i + 1).toLocaleString("fa")}`} <span style={{ color: "var(--muted)", fontSize: 12 }}>({p.toLocaleString("fa")}٪)</span></span>
-                <span style={{ color: "var(--gold)", fontWeight: 800 }}>{amounts[i].toLocaleString("fa")}</span>
+              <div key={i} className="list-row" style={{ padding: "0.4rem 0" }}>
+                <span>{`رتبه ${(i + 1).toLocaleString("fa")}`} <span className="info-cell-label">({p.toLocaleString("fa")}٪)</span></span>
+                <span className="stat-card-value--gold" style={{ fontWeight: 800 }}>{amounts[i].toLocaleString("fa")}</span>
               </div>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
       {onBubble && (
-        <div className="panel" style={{ padding: 10, marginBottom: 12, textAlign: "center", color: "var(--accent)", fontWeight: 700 }}>
-          🫧 مرحله حباب — یک حذف تا رسیدن به جوایز
-        </div>
+        <div className="panel bubble-banner">🫧 مرحله حباب — یک حذف تا رسیدن به جوایز</div>
       )}
 
-      <h3 style={{ fontSize: 15, color: "var(--muted)" }}>جدول رده‌بندی</h3>
-      <div style={{ display: "grid", gap: 6 }}>
+      <h3 className="profile-section-title" style={{ marginBottom: "0.5rem" }}>جدول رده‌بندی</h3>
+      <div className="tournament-leaderboard">
         {sorted.map((e) => (
-          <div key={e.userId} className="panel" style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: e.status === "active" ? 1 : 0.65, borderColor: e.userId === shortStackId ? "var(--accent)" : undefined }}>
+          <article
+            key={e.userId}
+            className={`panel list-row tournament-entry${e.status !== "active" ? " tournament-entry--inactive" : ""}${e.userId === shortStackId ? " tournament-entry--bubble" : ""}`}
+          >
             <div>
-              <div style={{ fontWeight: 700 }}>
+              <div className="table-card-name">
                 {e.place ? `${e.place.toLocaleString("fa")}. ` : ""}{e.name}
                 {e.status === "winner" && " 👑"}
                 {e.userId === shortStackId && " 🫧"}
               </div>
-              <div style={{ color: "var(--muted)", fontSize: 12 }}>
+              <div className="info-cell-label">
                 {e.status === "active"
                   ? `استک: ${e.chips.toLocaleString("fa")}`
                   : e.status === "busted"
@@ -192,19 +194,19 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
                 {e.rebuys > 0 ? ` · ری‌بای: ${e.rebuys.toLocaleString("fa")}` : ""}
               </div>
             </div>
-            {e.prize > 0 && <div style={{ color: "var(--gold)", fontWeight: 800 }}>+{e.prize.toLocaleString("fa")}</div>}
-          </div>
+            {e.prize > 0 && <div className="stat-card-value--gold" style={{ fontWeight: 800 }}>+{e.prize.toLocaleString("fa")}</div>}
+          </article>
         ))}
       </div>
-    </main>
+    </PageShell>
   );
 }
 
 function Info({ label, value, gold }: { label: string; value: string; gold?: boolean }) {
   return (
     <div>
-      <div style={{ color: "var(--muted)", fontSize: 12 }}>{label}</div>
-      <div style={{ fontWeight: 800, color: gold ? "var(--gold)" : "var(--text)" }}>{value}</div>
+      <div className="info-cell-label">{label}</div>
+      <div className={gold ? "info-cell-value info-cell-value--gold" : "info-cell-value"}>{value}</div>
     </div>
   );
 }

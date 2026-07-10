@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
+import { Field, Input, LoadingScreen } from "@/components/ui";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,9 +12,13 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    fetchMe().then((u) => u && router.replace("/"));
+    fetchMe().then((u) => {
+      if (u) router.replace("/");
+      else setChecking(false);
+    });
   }, [router]);
 
   async function submit(e: React.FormEvent) {
@@ -34,36 +39,54 @@ export default function LoginPage() {
     }
   }
 
-  return (
-    <main style={{ display: "grid", placeItems: "center", minHeight: "100dvh", padding: 20 }}>
-      <form onSubmit={submit} className="panel" style={{ padding: 24, width: "100%", maxWidth: 380 }}>
-        <h1 style={{ margin: "0 0 4px", fontSize: 26 }}>♠ پوکر دوستانه</h1>
-        <p style={{ color: "var(--muted)", marginTop: 0 }}>
-          {mode === "login" ? "برای ورود حساب خود را وارد کنید" : "یک حساب جدید بسازید"}
-        </p>
+  if (checking) return <LoadingScreen message="در حال بررسی نشست…" />;
 
-        <label style={labelStyle}>نام کاربری</label>
-        <input value={username} onChange={(e) => setUsername(e.target.value)} style={inputStyle} autoComplete="username" />
+  return (
+    <main className="login-page">
+      <form onSubmit={submit} className="panel login-card">
+        <div className="login-hero">
+          <div className="login-logo" aria-hidden>♠</div>
+          <h1 className="login-title">پوکر دوستانه</h1>
+          <p className="login-subtitle">
+            {mode === "login" ? "برای ورود حساب خود را وارد کنید" : "یک حساب جدید بسازید"}
+          </p>
+        </div>
+
+        <Field label="نام کاربری" htmlFor="username">
+          <Input
+            id="username"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            autoComplete="username"
+            required
+          />
+        </Field>
 
         {mode === "register" && (
-          <>
-            <label style={labelStyle}>نام نمایشی</label>
-            <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} style={inputStyle} />
-          </>
+          <Field label="نام نمایشی" htmlFor="displayName">
+            <Input
+              id="displayName"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              required
+            />
+          </Field>
         )}
 
-        <label style={labelStyle}>رمز عبور</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={inputStyle}
-          autoComplete={mode === "login" ? "current-password" : "new-password"}
-        />
+        <Field label="رمز عبور" htmlFor="password">
+          <Input
+            id="password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            required
+          />
+        </Field>
 
-        {error && <div style={{ color: "var(--danger)", marginTop: 10, fontSize: 14 }}>{error}</div>}
+        {error && <p className="login-error" role="alert">{error}</p>}
 
-        <button className="btn btn-primary" style={{ width: "100%", marginTop: 16 }} disabled={busy}>
+        <button className="btn btn-primary" style={{ width: "100%", marginTop: "0.5rem" }} disabled={busy}>
           {busy ? "..." : mode === "login" ? "ورود" : "ثبت‌نام"}
         </button>
 
@@ -71,7 +94,7 @@ export default function LoginPage() {
           type="button"
           onClick={() => setMode(mode === "login" ? "register" : "login")}
           className="btn btn-ghost"
-          style={{ width: "100%", marginTop: 10 }}
+          style={{ width: "100%", marginTop: "0.5rem" }}
         >
           {mode === "login" ? "حساب ندارید؟ ثبت‌نام کنید" : "قبلاً ثبت‌نام کرده‌اید؟ ورود"}
         </button>
@@ -79,14 +102,3 @@ export default function LoginPage() {
     </main>
   );
 }
-
-const labelStyle: React.CSSProperties = { display: "block", marginTop: 12, marginBottom: 4, fontSize: 13, color: "var(--muted)" };
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "0.6rem 0.7rem",
-  borderRadius: 10,
-  border: "1px solid var(--card-border)",
-  background: "rgba(0,0,0,.25)",
-  color: "var(--text)",
-  fontSize: 15,
-};

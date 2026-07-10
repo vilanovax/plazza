@@ -115,11 +115,46 @@ npm start
 ## تست / Tests
 
 ```bash
-npm test        # تست‌های واحد موتور پوکر (ارزیاب دست + پایستگی ژتون + پات‌های جانبی)
+npm test           # تست‌های واحد موتور پوکر (۴۶+ تست)
+npm run test:e2e   # تست‌های E2E با Playwright (نیاز به اپ در حال اجرا)
 ```
 
-موتور با ۱۳ تست واحد پوشش داده شده و یک سناریوی end-to-end (دو بازیکن، یک دست کامل تا
-showdown با بررسی پایستگی ژتون) به‌صورت دستی تأیید شده است.
+برای E2E محلی ابتدا استک را بالا بیاورید (`docker compose up -d`) سپس:
+
+```bash
+npx playwright install chromium
+npm run test:e2e
+```
+
+CI در GitHub Actions به‌صورت خودکار `npm test`، `lint`، `build` و E2E smoke را اجرا می‌کند.
+
+---
+
+## استقرار تولید / Production Deploy
+
+### چک‌لیست
+
+1. **رمزها:** `AUTH_SECRET` قوی (۳۲+ کاراکتر) و `SEED_ADMIN_PASSWORD` غیرپیش‌فرض
+2. **فایل `.env`:** از `.env.example` کپی کنید و مقادیر را پر کنید
+3. **TLS:** پشت reverse proxy (Caddy/nginx) با HTTPS
+4. **پشتیبان‌گیری:** volume `pgdata` را منظم backup بگیرید
+5. **تک‌نمونه:** فعلاً `GameManager` در حافظه است — برای scale افقی به Redis + sticky session نیاز دارید
+
+### Docker تولید
+
+```bash
+# .env با AUTH_SECRET و SEED_ADMIN_PASSWORD
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+```
+
+healthcheck: `GET /api/health` (بررسی اتصال دیتابیس)
+
+### سلامت سرویس
+
+```bash
+curl http://localhost:3001/api/health
+# → {"ok":true,"db":"ok"}
+```
 
 ---
 

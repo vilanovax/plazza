@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
+import { Field, Input, LoadingScreen, PageHeader, PageShell, Select } from "@/components/ui";
 
 type Tab = "users" | "topups" | "settlements" | "settings";
 
@@ -21,24 +21,32 @@ export default function AdminPage() {
       .catch(() => router.replace("/login"));
   }, [router]);
 
-  if (!ok) return <main style={{ padding: 24 }}>در حال بارگذاری…</main>;
+  if (!ok) return <LoadingScreen message="در حال بارگذاری پنل…" />;
+
+  const tabs: [Tab, string][] = [["users", "کاربران"], ["topups", "تاپ‌آپ"], ["settlements", "تسویه‌ها"], ["settings", "تنظیمات"]];
 
   return (
-    <main style={{ maxWidth: 720, margin: "0 auto", padding: 16 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <Link href="/" className="btn btn-ghost" style={{ padding: "0.3rem 0.7rem", fontSize: 13 }}>→ لابی</Link>
-        <h1 style={{ fontSize: 20, margin: 0 }}>پنل مدیریت</h1>
-      </header>
-      <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-        {([["users", "کاربران"], ["topups", "درخواست تاپ‌آپ"], ["settlements", "تسویه‌ها"], ["settings", "تنظیمات"]] as [Tab, string][]).map(([k, l]) => (
-          <button key={k} className={`btn ${tab === k ? "btn-gold" : "btn-ghost"}`} style={{ fontSize: 13 }} onClick={() => setTab(k)}>{l}</button>
+    <PageShell wide>
+      <PageHeader title="پنل مدیریت" />
+      <div className="admin-tabs" role="tablist">
+        {tabs.map(([k, l]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={tab === k}
+            className={`admin-tab${tab === k ? " admin-tab--active" : ""}`}
+            onClick={() => setTab(k)}
+          >
+            {l}
+          </button>
         ))}
       </div>
       {tab === "users" && <UsersTab />}
       {tab === "topups" && <TopupsTab />}
       {tab === "settlements" && <SettlementsTab />}
       {tab === "settings" && <SettingsTab />}
-    </main>
+    </PageShell>
   );
 }
 
@@ -69,27 +77,28 @@ function UsersTab() {
   return (
     <div>
       <div className="panel" style={{ padding: 14, marginBottom: 14 }}>
-        <div style={{ fontWeight: 700, marginBottom: 8 }}>ساخت کاربر جدید</div>
+        <div className="profile-section-title" style={{ marginBottom: 8 }}>ساخت کاربر جدید</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-          <input placeholder="نام کاربری" value={nu.username} onChange={(e) => setNu({ ...nu, username: e.target.value })} style={inp} />
-          <input placeholder="نام نمایشی" value={nu.displayName} onChange={(e) => setNu({ ...nu, displayName: e.target.value })} style={inp} />
-          <input type="password" placeholder="رمز عبور" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} style={inp} />
-          <select value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })} style={inp}>
-            <option value="player">بازیکن</option><option value="admin">مدیر</option>
-          </select>
+          <Input placeholder="نام کاربری" value={nu.username} onChange={(e) => setNu({ ...nu, username: e.target.value })} />
+          <Input placeholder="نام نمایشی" value={nu.displayName} onChange={(e) => setNu({ ...nu, displayName: e.target.value })} />
+          <Input type="password" placeholder="رمز عبور" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} />
+          <Select value={nu.role} onChange={(e) => setNu({ ...nu, role: e.target.value })}>
+            <option value="player">بازیکن</option>
+            <option value="admin">مدیر</option>
+          </Select>
         </div>
-        {err && <div style={{ color: "var(--danger)", fontSize: 13, marginTop: 6 }}>{err}</div>}
+        {err && <p className="login-error">{err}</p>}
         <button className="btn btn-primary" style={{ marginTop: 10 }} onClick={createUser}>ایجاد</button>
       </div>
 
-      <div style={{ display: "grid", gap: 6 }}>
+      <div className="lobby-grid">
         {users.map((u) => (
-          <div key={u.id} className="panel" style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", opacity: u.isActive ? 1 : 0.5 }}>
+          <div key={u.id} className="panel list-row" style={{ opacity: u.isActive ? 1 : 0.5 }}>
             <div>
               <div style={{ fontWeight: 700 }}>{u.displayName} {u.role === "admin" ? "👑" : ""}</div>
               <div style={{ color: "var(--muted)", fontSize: 12 }}>@{u.username}</div>
             </div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div className="list-row-actions">
               <div style={{ color: "var(--gold)", fontWeight: 800 }}>{u.chipBalance.toLocaleString("fa")}</div>
               <button className="btn btn-gold" style={{ fontSize: 12, padding: "0.3rem 0.6rem" }} onClick={() => credit(u.id)}>ژتون</button>
               <button className="btn btn-ghost" style={{ fontSize: 12, padding: "0.3rem 0.6rem" }} onClick={() => toggle(u)}>{u.isActive ? "غیرفعال" : "فعال"}</button>
@@ -176,10 +185,11 @@ function SettingsTab() {
   const [s, setS] = useState<Record<string, number | boolean> | null>(null);
   const [saved, setSaved] = useState(false);
   useEffect(() => { api<{ settings: Record<string, number | boolean> }>("/api/admin/settings").then((d) => setS(d.settings)); }, []);
-  if (!s) return <div style={{ color: "var(--muted)" }}>…</div>;
+  if (!s) return <LoadingScreen message="در حال بارگذاری تنظیمات…" />;
   const num = (k: string, label: string) => (
-    <label style={{ fontSize: 12, color: "var(--muted)" }}>{label}
-      <input type="number" value={s[k] as number} onChange={(e) => setS({ ...s, [k]: Number(e.target.value) })} style={inp} /></label>
+    <Field label={label}>
+      <Input type="number" value={s[k] as number} onChange={(e) => setS({ ...s, [k]: Number(e.target.value) })} />
+    </Field>
   );
   const bool = (k: string, label: string) => (
     <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14 }}>
@@ -211,8 +221,3 @@ function SettingsTab() {
     </div>
   );
 }
-
-const inp: React.CSSProperties = {
-  width: "100%", marginTop: 4, padding: "0.45rem 0.5rem", borderRadius: 8,
-  border: "1px solid var(--card-border)", background: "rgba(0,0,0,.25)", color: "var(--text)",
-};
