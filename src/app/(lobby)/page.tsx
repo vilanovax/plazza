@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, fetchMe, invalidateMeCache, type Me } from "@/lib/client/api";
-import { Input, Field, Modal, LoadingScreen } from "@/components/ui";
+import { Input, Field, Modal, LoadingScreen, Select } from "@/components/ui";
 import type { TableConfig } from "@/lib/poker/types";
 
 interface TableSummary {
@@ -15,9 +15,9 @@ interface TableSummary {
 }
 
 const STAKES = [
-  { id: "low", label: "آرام", blinds: "۵/۱۰", sb: 5, bb: 10, minBuyIn: 200, maxBuyIn: 2000 },
-  { id: "mid", label: "معمولی", blinds: "۱۰/۲۰", sb: 10, bb: 20, minBuyIn: 400, maxBuyIn: 4000 },
-  { id: "high", label: "تند", blinds: "۲۵/۵۰", sb: 25, bb: 50, minBuyIn: 1000, maxBuyIn: 10000 },
+  { id: "low", label: "آرام", blinds: "۲۵/۵۰", sb: 25, bb: 50, minBuyIn: 1000, maxBuyIn: 10000 },
+  { id: "mid", label: "معمولی", blinds: "۵۰/۱۰۰", sb: 50, bb: 100, minBuyIn: 2000, maxBuyIn: 20000 },
+  { id: "high", label: "تند", blinds: "۱۰۰/۲۰۰", sb: 100, bb: 200, minBuyIn: 4000, maxBuyIn: 40000 },
 ] as const;
 
 function SeatDots({ seated, max }: { seated: number; max: number }) {
@@ -34,7 +34,7 @@ export default function LobbyPage() {
   const router = useRouter();
   const [me, setMe] = useState<Me | null>(null);
   const [tables, setTables] = useState<TableSummary[]>([]);
-  const [tab, setTab] = useState<"tables" | "tournaments">("tables");
+  const [tab, setTab] = useState<"tables" | "tournaments" | "deposits">("tables");
   const [showCreateTable, setShowCreateTable] = useState(false);
   const [editTable, setEditTable] = useState<TableSummary | null>(null);
   const [closeTarget, setCloseTarget] = useState<TableSummary | null>(null);
@@ -129,6 +129,15 @@ export default function LobbyPage() {
         >
           تورنومنت‌ها
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "deposits"}
+          className={`lobby-tab${tab === "deposits" ? " lobby-tab--active" : ""}`}
+          onClick={() => setTab("deposits")}
+        >
+          خرید ژتون
+        </button>
       </div>
 
       {tab === "tables" && (
@@ -183,6 +192,10 @@ export default function LobbyPage() {
           refreshToken={tournamentRefresh}
         />
       )}
+
+      {tab === "deposits" && (
+        <ChipDepositsSection isAdmin={isAdmin} onBalanceChange={refreshMe} />
+      )}
       </main>
 
       {showCreateTable && (
@@ -217,6 +230,272 @@ export default function LobbyPage() {
         />
       )}
     </>
+  );
+}
+
+interface ChipPurchaseSummary {
+  userId: string;
+  displayName: string;
+  chipBalance: number;
+  totalPurchased: number;
+  purchaseCount: number;
+}
+
+interface ChipDepositEntry {
+  id: string;
+  userId: string;
+  displayName: string;
+  amount: number;
+  note: string | null;
+  settled: boolean;
+  createdAt: string;
+  recordedBy: string | null;
+}
+
+function ChipDepositsSection({ isAdmin, onBalanceChange }: { isAdmin: boolean; onBalanceChange: () => void }) {
+  const [summary, setSummary] = useState<ChipPurchaseSummary[]>([]);
+  const [recent, setRecent] = useState<ChipDepositEntry[]>([]);
+  const [err, setErr] = useState("");
+  const [depositOpen, setDepositOpen] = useState(false);
+  const [depositUserId, setDepositUserId] = useState("");
+
+  const load = useCallback(async () => {
+    setErr("");
+    try {
+      const data = await api<{ summary: ChipPurchaseSummary[]; recent: ChipDepositEntry[] }>("/api/chip-deposits");
+      setSummary(data.summary);
+      setRecent(data.recent);
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function toggleSettled(entry: ChipDepositEntry) {
+    if (!isAdmin) return;
+    try {
+      await api(`/api/admin/ledger/${entry.id}/settle`, { method: "POST", body: { settled: !entry.settled } });
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }
+
+  return (
+    <section className="lobby-section chip-deposits-section" aria-labelledby="deposits-heading">
+      <div className="chip-deposits-head">
+        <div>
+          <h2 id="deposits-heading" className="chip-deposits-title">جدول خرید ژتون</h2>
+          <p className="chip-deposits-desc">مجموع ژتون‌های خریداری‌شده از مدیر و تاریخچه واریزها</p>
+        </div>
+        {isAdmin && (
+          <button
+            type="button"
+            className="btn btn-gold"
+            onClick={() => {
+              setDepositUserId(summary[0]?.userId ?? "");
+              setDepositOpen(true);
+            }}
+          >
+            ثبت واریز
+          </button>
+        )}
+      </div>
+
+      {err && <p className="login-error">{err}</p>}
+
+      <div className="panel chip-deposits-table-wrap">
+        <table className="chip-deposits-table">
+          <thead>
+            <tr>
+              <th scope="col">بازیکن</th>
+              <th scope="col">کل خرید</th>
+              <th scope="col">تعداد</th>
+              <th scope="col">موجودی فعلی</th>
+              {isAdmin && <th scope="col">عملیات</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {summary.length === 0 && (
+              <tr>
+                <td colSpan={isAdmin ? 5 : 4} className="chip-deposits-empty">هنوز خریدی ثبت نشده</td>
+              </tr>
+            )}
+            {summary.map((row) => (
+              <tr key={row.userId}>
+                <td>{row.displayName}</td>
+                <td className="chip-deposits-amount">{row.totalPurchased.toLocaleString("fa")}</td>
+                <td>{row.purchaseCount.toLocaleString("fa")}</td>
+                <td>{row.chipBalance.toLocaleString("fa")}</td>
+                {isAdmin && (
+                  <td>
+                    <button
+                      type="button"
+                      className="btn btn-ghost chip-deposits-action"
+                      onClick={() => {
+                        setDepositUserId(row.userId);
+                        setDepositOpen(true);
+                      }}
+                    >
+                      واریز
+                    </button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <h3 className="chip-deposits-subtitle">تاریخچه واریزها</h3>
+      <div className="panel chip-deposits-table-wrap">
+        <table className="chip-deposits-table chip-deposits-table--recent">
+          <thead>
+            <tr>
+              <th scope="col">زمان</th>
+              <th scope="col">بازیکن</th>
+              <th scope="col">مبلغ</th>
+              <th scope="col">یادداشت</th>
+              <th scope="col">ثبت‌کننده</th>
+              <th scope="col">تسویه</th>
+              {isAdmin && <th scope="col" />}
+            </tr>
+          </thead>
+          <tbody>
+            {recent.length === 0 && (
+              <tr>
+                <td colSpan={isAdmin ? 7 : 6} className="chip-deposits-empty">واریزی ثبت نشده</td>
+              </tr>
+            )}
+            {recent.map((entry) => (
+              <tr key={entry.id}>
+                <td className="chip-deposits-time">
+                  {new Date(entry.createdAt).toLocaleString("fa", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </td>
+                <td>{entry.displayName}</td>
+                <td className="chip-deposits-amount">+{entry.amount.toLocaleString("fa")}</td>
+                <td className="chip-deposits-note">{entry.note ?? "—"}</td>
+                <td>{entry.recordedBy ?? "—"}</td>
+                <td>
+                  <span className={`chip-deposits-settled${entry.settled ? " chip-deposits-settled--ok" : ""}`}>
+                    {entry.settled ? "تسویه شد" : "تسویه‌نشده"}
+                  </span>
+                </td>
+                {isAdmin && (
+                  <td>
+                    <button
+                      type="button"
+                      className="btn btn-ghost chip-deposits-action"
+                      onClick={() => void toggleSettled(entry)}
+                    >
+                      {entry.settled ? "بازگشت" : "تسویه"}
+                    </button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {depositOpen && (
+        <RecordDepositModal
+          users={summary}
+          initialUserId={depositUserId}
+          onClose={() => setDepositOpen(false)}
+          onDone={async () => {
+            setDepositOpen(false);
+            await load();
+            onBalanceChange();
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+function RecordDepositModal({
+  users,
+  initialUserId,
+  onClose,
+  onDone,
+}: {
+  users: ChipPurchaseSummary[];
+  initialUserId: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [userId, setUserId] = useState(initialUserId);
+  const [amount, setAmount] = useState(1000);
+  const [note, setNote] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setErr("");
+    if (!userId) return setErr("بازیکن را انتخاب کنید");
+    if (amount <= 0) return setErr("مبلغ باید مثبت باشد");
+    if (!note.trim()) return setErr("یادداشت واریز الزامی است (مثلاً شماره کارت یا مبلغ ریالی)");
+    setBusy(true);
+    try {
+      await api(`/api/admin/users/${userId}/credit`, {
+        method: "POST",
+        body: { amount, note: note.trim() },
+      });
+      await onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="ثبت واریز ژتون"
+      subtitle="شارژ حساب بازیکن پس از دریافت وجه"
+      onClose={onClose}
+      titleId="record-deposit-title"
+      className="record-deposit-modal"
+    >
+      <Field label="بازیکن" htmlFor="deposit-user">
+        <Select
+          id="deposit-user"
+          value={userId}
+          onChange={(e) => setUserId(e.target.value)}
+        >
+          {users.map((u) => (
+            <option key={u.userId} value={u.userId}>{u.displayName}</option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="مبلغ ژتون" htmlFor="deposit-amount">
+        <Input
+          id="deposit-amount"
+          type="number"
+          min={1}
+          value={amount}
+          onChange={(e) => setAmount(Number(e.target.value))}
+        />
+      </Field>
+      <Field label="یادداشت واریز" htmlFor="deposit-note">
+        <Input
+          id="deposit-note"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="مثلاً واریز ۵۰۰ هزار تومان — کارت ۶۰۳۷…"
+          maxLength={200}
+        />
+      </Field>
+      {err && <p className="login-error">{err}</p>}
+      <div className="sit-dialog-actions">
+        <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>انصراف</button>
+        <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
+          {busy ? "در حال ثبت…" : "ثبت واریز"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

@@ -6,6 +6,7 @@ import { useTableSocket } from "@/components/useTableSocket";
 import { useTableSounds } from "@/components/useTableSounds";
 import { DealerAvatar } from "@/components/DealerAvatar";
 import { ChipStack } from "@/components/ChipStack";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { PlayingCard } from "@/components/PlayingCard";
 import { api, fetchMe, type Me } from "@/lib/client/api";
 import { Input, Modal, PageShell } from "@/components/ui";
@@ -94,10 +95,10 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   }, [state, viewerSeat, preAction, act, clearPre]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const compact = useCompactLayout();
+  const { compact, landscape } = useTableLayout();
 
   return (
-    <PageShell table>
+    <PageShell table className={landscape ? "table-shell--landscape" : ""}>
       <header className="table-header">
         <Link href="/" className="btn btn-ghost page-back table-btn-sm">
           <span aria-hidden>→</span>
@@ -138,6 +139,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         </button>
       )}
 
+      <div className="table-play-area">
       <div className="table-felt-wrap">
         <div className="table-rail" aria-hidden>
           <div className="table-felt" />
@@ -169,7 +171,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         </div>
 
         {Array.from({ length: seatCount }).map((_, i) => {
-          const pos = seatPosition(i, viewerSeat, seatCount, compact);
+          const pos = seatPosition(i, viewerSeat, seatCount, { compact, landscape });
           const seat = state?.seats[i];
           const isTurn = state?.currentTurnSeat === i;
           const isButton = state?.buttonSeat === i && state?.phase !== "waiting";
@@ -190,6 +192,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
                   deadline={isTurn ? state?.actionDeadline : undefined}
                   showdown={state?.phase === "hand_complete"}
                   compact={compact}
+                  chipOffset={{ x: pos.chipOx, y: pos.chipOy }}
                   onSelect={() => seat!.userId && setStatsFor({ userId: seat!.userId, name: seat!.name ?? "بازیکن", seatIndex: i })}
                 />
               ) : (
@@ -203,6 +206,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         })}
       </div>
 
+      <div className="table-controls">
       {state && viewerSeat != null && state.phase === "hand_complete" &&
         state.showOfferSeat === viewerSeat && state.showOfferUntil && (
           <ShowCardsPrompt until={state.showOfferUntil} onShow={showCards} />
@@ -251,6 +255,8 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           onSend={(text) => chat(text)}
         />
       )}
+      </div>
+      </div>
 
       {sitSeat != null && state && me && (
         <SitDialog seat={sitSeat} config={state.config} balance={me.chipBalance}
@@ -280,29 +286,56 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   );
 }
 
-function useCompactLayout() {
-  const [compact, setCompact] = useState(false);
+function useTableLayout() {
+  const [layout, setLayout] = useState({ compact: false, landscape: false });
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 520px)");
-    const update = () => setCompact(mq.matches);
+    const mqCompact = window.matchMedia("(max-width: 520px)");
+    const mqLandscape = window.matchMedia("(max-height: 520px) and (orientation: landscape)");
+    const update = () => setLayout({
+      compact: mqCompact.matches || mqLandscape.matches,
+      landscape: mqLandscape.matches,
+    });
     update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
+    mqCompact.addEventListener("change", update);
+    mqLandscape.addEventListener("change", update);
+    return () => {
+      mqCompact.removeEventListener("change", update);
+      mqLandscape.removeEventListener("change", update);
+    };
   }, []);
-  return compact;
+  return layout;
 }
 
-function seatPosition(index: number, viewerSeat: number | null, n: number, compact = false) {
+function seatPosition(
+  index: number,
+  viewerSeat: number | null,
+  n: number,
+  opts?: { compact?: boolean; landscape?: boolean },
+) {
+  const compact = opts?.compact ?? false;
+  const landscape = opts?.landscape ?? false;
   const anchor = viewerSeat ?? 0;
   const displayPos = ((index - anchor) % n + n) % n;
   const theta = Math.PI / 2 + (displayPos * 2 * Math.PI) / n;
-  const rx = compact ? 36 : 44;
-  const ry = compact ? 34 : 43;
-  return { x: 50 + rx * Math.cos(theta), y: 50 + ry * Math.sin(theta) };
+  const rx = landscape ? 42 : compact ? 36 : 44;
+  const ry = landscape ? 30 : compact ? 34 : 43;
+  const x = 50 + rx * Math.cos(theta);
+  const y = 50 + ry * Math.sin(theta);
+  const dx = 50 - x;
+  const dy = 50 - y;
+  const len = Math.hypot(dx, dy) || 1;
+  const push = landscape ? 12 : compact ? 14 : 22;
+  return {
+    x,
+    y,
+    chipOx: (dx / len) * push,
+    chipOy: (dy / len) * push,
+  };
 }
 
-const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, compact, onSelect }: {
-  seat: SeatVM; isTurn: boolean; isButton: boolean; isViewer?: boolean; community: Card[]; deadline?: number; showdown?: boolean; compact?: boolean; onSelect?: () => void;
+const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, compact, chipOffset, onSelect }: {
+  seat: SeatVM; isTurn: boolean; isButton: boolean; isViewer?: boolean; community: Card[]; deadline?: number; showdown?: boolean; compact?: boolean;
+  chipOffset?: { x: number; y: number }; onSelect?: () => void;
 }) {
   const folded = seat.status === "folded";
   // Show the current best hand for any cards we can actually see (the viewer's
@@ -317,33 +350,50 @@ const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, comm
       aria-label={onSelect ? `آمار ${seat.name ?? "بازیکن"}` : undefined}
       className={`seat-view${folded ? " seat-view--folded" : ""}${onSelect ? " seat-view--clickable" : ""}${isViewer ? " seat-view--viewer" : ""}`}
     >
-      {seat.betThisRound > 0 && (
-        <div className="seat-bet">
-          <ChipStack amount={seat.betThisRound} compact={compact} maxChips={3} />
-        </div>
-      )}
       {handName && <div className="seat-hand-badge">{handName}</div>}
       {showdown && seat.holeCards?.length && seat.tagline ? (
         <div className="seat-tagline">“{seat.tagline}”</div>
       ) : null}
       <div className="seat-cards">
         {seat.holeCards?.length ? seat.holeCards.map((c, i) => <PlayingCard key={i} card={c} small />) :
-          seat.hasCards ? [0, 1].map((i) => <PlayingCard key={i} small hidden />) : null}
+          seat.hasCards ? [0, 1].map((i) => <PlayingCard key={i} small hidden cardBack={seat.cardBack} />) : null}
       </div>
-      <div className={`panel seat-panel${isTurn ? " seat-panel--turn" : ""}`}>
-        <div className="seat-name">
-          {isButton ? "🅑 " : ""}{seat.avatar ? `${seat.avatar} ` : ""}{seat.name}{!seat.isConnected ? " ⚠" : ""}
-        </div>
-        {seat.title && <div className="seat-title">«{seat.title}»</div>}
+      {seat.betThisRound > 0 && (
         <div
-          className="seat-stack"
-          style={seat.chipColor ? ({ "--seat-chip": seat.chipColor } as React.CSSProperties) : undefined}
+          className="seat-bet seat-bet--felt"
+          style={chipOffset ? { transform: `translate(${chipOffset.x}px, ${chipOffset.y}px)` } : undefined}
         >
-          <ChipStack amount={seat.stack} compact={compact} showAmount maxChips={2} />
+          <ChipStack amount={seat.betThisRound} compact={compact} maxChips={3} />
         </div>
-        {seat.status === "allin" && <div className="seat-tag-allin">آل‌این</div>}
-        {seat.sitOut && <div className="seat-tag-sitout">سیت‌اوت</div>}
-        {isTurn && deadline && <Countdown deadline={deadline} />}
+      )}
+      {seat.stack > 0 && (
+        <div
+          className="seat-felt-chips"
+          style={{
+            ...(chipOffset ? { transform: `translate(${chipOffset.x * 1.35}px, ${chipOffset.y * 1.35}px)` } : {}),
+            ...(seat.chipColor ? ({ "--seat-chip": seat.chipColor } as React.CSSProperties) : {}),
+          }}
+        >
+          <ChipStack amount={seat.stack} compact={compact} showAmount maxChips={compact ? 2 : 3} />
+        </div>
+      )}
+      <div className="seat-row">
+        <div className={`panel seat-panel${isTurn ? " seat-panel--turn" : ""}`}>
+          <div className="seat-name">
+            {isButton ? "🅑 " : ""}{seat.name}{!seat.isConnected ? " ⚠" : ""}
+          </div>
+          {seat.title && <div className="seat-title">«{seat.title}»</div>}
+          {seat.status === "allin" && <div className="seat-tag-allin">آل‌این</div>}
+          {seat.sitOut && <div className="seat-tag-sitout">سیت‌اوت</div>}
+          {isTurn && deadline && <Countdown deadline={deadline} />}
+        </div>
+        <PlayerAvatar
+          avatar={seat.avatar}
+          userId={seat.userId ?? undefined}
+          name={seat.name ?? undefined}
+          size={compact ? 35 : 44}
+          className={isTurn ? "player-avatar--turn" : ""}
+        />
       </div>
     </div>
   );
@@ -682,7 +732,9 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
         <div className="stats-card-hero">
           <div className="stats-card-hero-inner">
             {profile!.avatar && (
-              <div className="stats-card-avatar" aria-hidden>{profile!.avatar}</div>
+              <div className="stats-card-avatar" aria-hidden>
+                <PlayerAvatar avatar={profile!.avatar} userId={userId} name={displayName} size={56} />
+              </div>
             )}
             <div className="stats-card-identity">
               {profile!.title && <div className="stats-card-title">«{profile!.title}»</div>}

@@ -1,9 +1,20 @@
 "use client";
 import { rankOf, suitOf, RANKS, SUIT_SYMBOLS, type Card } from "@/lib/poker/cards";
+import { cardBackColor } from "@/lib/profile/presets";
 
 const RED_SUITS = new Set([1, 2]); // diamonds, hearts
 
-export function PlayingCard({ card, small, hidden }: { card?: Card; small?: boolean; hidden?: boolean }) {
+export function PlayingCard({
+  card,
+  small,
+  hidden,
+  cardBack,
+}: {
+  card?: Card;
+  small?: boolean;
+  hidden?: boolean;
+  cardBack?: string;
+}) {
   const className = [
     "playing-card",
     small && "playing-card--small",
@@ -14,7 +25,13 @@ export function PlayingCard({ card, small, hidden }: { card?: Card; small?: bool
     .join(" ");
 
   if (hidden || card == null) {
-    return <div className={className} aria-hidden />;
+    return (
+      <div
+        className={className}
+        aria-hidden
+        style={{ "--card-back": cardBackColor(cardBack) } as React.CSSProperties}
+      />
+    );
   }
 
   const r = RANKS[rankOf(card)];

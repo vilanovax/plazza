@@ -147,6 +147,7 @@ export interface SeatProfile {
   title?: string;
   tagline?: string;
   chipColor?: string;
+  cardBack?: string;
 }
 
 /** Sanitised state broadcast to a specific viewer (their own cards only). */

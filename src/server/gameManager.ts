@@ -787,6 +787,7 @@ export class GameManager {
         seat.title = p.title;
         seat.tagline = p.tagline;
         seat.chipColor = p.chipColor;
+        seat.cardBack = p.cardBack;
       }
     }
     if (viewerId) ps.myCardBack = rt.profiles.get(viewerId)?.cardBack ?? "";

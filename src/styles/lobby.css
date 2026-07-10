@@ -53,7 +53,7 @@
 }
 
 .lobby-wallet {
-  text-align: left;
+  text-align: end;
   flex-shrink: 0;
   padding: 0.55rem 0.85rem;
   border-radius: 14px;
@@ -211,25 +211,6 @@
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
-}
-
-.meta-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding: 0.18rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: var(--muted);
-}
-
-.meta-pill--gold {
-  color: #f0d48a;
-  border-color: rgba(217, 180, 91, 0.25);
-  background: rgba(217, 180, 91, 0.1);
 }
 
 .table-card-side {
@@ -652,7 +633,7 @@
     align-items: stretch;
   }
   .lobby-wallet {
-    text-align: right;
+    text-align: end;
   }
   .table-card,
   .tournament-card {
@@ -663,5 +644,136 @@
     flex-direction: row;
     justify-content: space-between;
     width: 100%;
+  }
+}
+
+/* ── Chip deposits tab ── */
+.chip-deposits-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.chip-deposits-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.chip-deposits-title {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--gold);
+}
+
+.chip-deposits-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.chip-deposits-subtitle {
+  margin: 0.5rem 0 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--color-gold-300);
+}
+
+.chip-deposits-table-wrap {
+  overflow-x: auto;
+  padding: 0;
+}
+
+.chip-deposits-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.chip-deposits-table th,
+.chip-deposits-table td {
+  padding: 0.55rem 0.65rem;
+  text-align: right;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.chip-deposits-table th {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--color-gold-300);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.chip-deposits-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.chip-deposits-table tbody tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.chip-deposits-amount {
+  color: var(--gold);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip-deposits-note {
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.chip-deposits-time {
+  white-space: nowrap;
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.chip-deposits-settled {
+  font-size: 0.72rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(229, 72, 77, 0.12);
+  color: var(--color-danger-300);
+  border: 1px solid rgba(229, 72, 77, 0.25);
+}
+
+.chip-deposits-settled--ok {
+  background: rgba(47, 158, 111, 0.12);
+  color: #7ee4b8;
+  border-color: rgba(47, 158, 111, 0.35);
+}
+
+.chip-deposits-empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 1.25rem !important;
+}
+
+.chip-deposits-action {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  min-height: unset;
+}
+
+@media (max-width: 640px) {
+  .chip-deposits-table {
+    font-size: 0.72rem;
+  }
+
+  .chip-deposits-table th,
+  .chip-deposits-table td {
+    padding: 0.4rem 0.45rem;
+  }
+
+  .chip-deposits-note {
+    max-width: 6rem;
   }
 }

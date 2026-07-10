@@ -4,12 +4,9 @@
  * reaches the DB or other players' screens.
  */
 import { RANKS, SUITS } from "../poker/cards";
+import { AVATARS } from "./avatars";
 
-/** Emoji avatars a player may choose from. */
-export const AVATARS = [
-  "🐺", "🦈", "🦅", "🐉", "🦁", "🐯", "🐸", "🦊", "🐙", "🦂",
-  "👑", "🃏", "🎩", "💎", "🔥", "⚡", "🌟", "🍀", "🧊", "🧠",
-] as const;
+export { AVATARS };
 
 /** Card-back themes (id → display colour). */
 export const CARD_BACKS: Array<{ id: string; color: string; name: string }> = [
@@ -19,6 +16,14 @@ export const CARD_BACKS: Array<{ id: string; color: string; name: string }> = [
   { id: "gold", color: "#b8860b", name: "طلایی" },
   { id: "violet", color: "#6a3d9a", name: "بنفش" },
 ];
+
+const DEFAULT_CARD_BACK_COLOR = CARD_BACKS[0].color;
+
+/** Resolve a card-back theme id to its display colour (falls back to classic). */
+export function cardBackColor(id?: string): string {
+  if (!id) return DEFAULT_CARD_BACK_COLOR;
+  return CARD_BACKS.find((c) => c.id === id)?.color ?? DEFAULT_CARD_BACK_COLOR;
+}
 
 /** Personal chip colours (hex). */
 export const CHIP_COLORS = ["#c0392b", "#2980b9", "#27ae60", "#8e44ad", "#f39c12", "#16a085", "#2c3e50"] as const;

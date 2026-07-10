@@ -6,10 +6,12 @@ import { Field, Input, LoadingScreen, PageHeader, PageShell } from "@/components
 import { api, fetchMe } from "@/lib/client/api";
 import { RANKS, SUITS, SUIT_SYMBOLS, stringToCard } from "@/lib/poker/cards";
 import { PlayingCard } from "@/components/PlayingCard";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import {
   AVATARS, CARD_BACKS, CHIP_COLORS, EMOTES,
   TAGLINE_MAX, TITLE_MAX, MAX_FAVORITE_CARDS, MAX_EMOTES,
 } from "@/lib/profile/presets";
+import { avatarImageSrc } from "@/lib/profile/avatars";
 
 interface Profile {
   displayName: string; avatar: string; tagline: string; title: string;
@@ -81,7 +83,7 @@ export default function ProfilePage() {
         <div className="profile-hero-top">
           <div className="profile-avatar-wrap">
             <div className="profile-avatar-ring">
-              <span className="profile-avatar-emoji">{p.avatar || "🙂"}</span>
+              <PlayerAvatar avatar={p.avatar} userId={myId ?? undefined} name={p.displayName} size={72} />
             </div>
           </div>
           <div className="profile-hero-info">
@@ -129,12 +131,13 @@ export default function ProfilePage() {
               <button
                 key={a}
                 type="button"
-                className={`profile-pick-btn${p.avatar === a ? " profile-pick-btn--active" : ""}`}
+                className={`profile-pick-btn profile-pick-btn--avatar${p.avatar === a ? " profile-pick-btn--active" : ""}`}
                 onClick={() => set("avatar", p.avatar === a ? "" : a)}
                 aria-label={`آواتار ${a}`}
                 aria-pressed={p.avatar === a}
               >
-                {a}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={avatarImageSrc(a)} alt="" className="profile-avatar-pick-img" />
               </button>
             ))}
           </div>

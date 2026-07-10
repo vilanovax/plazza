@@ -185,6 +185,64 @@ export async function setLedgerSettled(
   );
 }
 
+/** Per-user totals of admin chip credits (bank purchases). */
+export interface ChipPurchaseSummaryRow {
+  user_id: string;
+  display_name: string;
+  chip_balance: string;
+  total_purchased: string;
+  purchase_count: number;
+}
+
+export async function listChipPurchaseSummary(): Promise<ChipPurchaseSummaryRow[]> {
+  return query<ChipPurchaseSummaryRow>(
+    `SELECT u.id AS user_id,
+            u.display_name,
+            u.chip_balance::text,
+            COALESCE(SUM(le.amount) FILTER (WHERE le.type = 'admin_credit'), 0)::text AS total_purchased,
+            COUNT(le.id) FILTER (WHERE le.type = 'admin_credit')::int AS purchase_count
+       FROM users u
+       LEFT JOIN ledger_entries le ON le.user_id = u.id AND le.type = 'admin_credit'
+      WHERE u.is_active = TRUE
+      GROUP BY u.id
+      ORDER BY COALESCE(SUM(le.amount) FILTER (WHERE le.type = 'admin_credit'), 0) DESC,
+               u.display_name ASC`
+  );
+}
+
+export interface ChipDepositRow {
+  id: string;
+  user_id: string;
+  display_name: string;
+  amount: string;
+  note: string | null;
+  settled: boolean;
+  created_at: string;
+  created_by: string | null;
+  created_by_name: string | null;
+}
+
+export async function listRecentChipDeposits(limit = 100): Promise<ChipDepositRow[]> {
+  return query<ChipDepositRow>(
+    `SELECT le.id,
+            le.user_id,
+            u.display_name,
+            le.amount::text,
+            le.note,
+            le.settled,
+            le.created_at,
+            le.created_by,
+            admin.display_name AS created_by_name
+       FROM ledger_entries le
+       JOIN users u ON u.id = le.user_id
+       LEFT JOIN users admin ON admin.id = le.created_by
+      WHERE le.type = 'admin_credit'
+      ORDER BY le.created_at DESC
+      LIMIT $1`,
+    [limit]
+  );
+}
+
 /** Net unsettled balance per counterparty pair — "who owes whom". */
 export interface SettlementRow {
   user_id: string;

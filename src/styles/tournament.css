@@ -3,6 +3,31 @@
   margin-bottom: 0.85rem;
 }
 
+.tournament-hero-span {
+  grid-column: 1 / -1;
+}
+
+.tournament-late-reg {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--color-accent-400);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.tournament-table-link {
+  display: block;
+  text-align: center;
+}
+
+.tournament-section-title {
+  margin: 0 0 0.5rem;
+}
+
+.tournament-prize-row {
+  padding: 0.4rem 0;
+}
+
 .tournament-leaderboard {
   display: grid;
   gap: 0.4rem;
@@ -10,6 +35,19 @@
 
 .tournament-entry {
   opacity: 1;
+  gap: 0.65rem;
+}
+
+.tournament-entry-main {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.tournament-entry-text {
+  min-width: 0;
 }
 
 .tournament-entry--inactive {
@@ -18,6 +56,12 @@
 
 .tournament-entry--bubble {
   border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(126, 228, 184, 0.2);
+}
+
+.tournament-entry-prize {
+  font-weight: 800;
+  flex-shrink: 0;
 }
 
 .bubble-banner {
@@ -27,6 +71,8 @@
   color: var(--color-accent-400);
   font-weight: 700;
   font-size: var(--text-sm);
+  border-color: rgba(126, 228, 184, 0.35);
+  background: linear-gradient(180deg, rgba(126, 228, 184, 0.1), rgba(6, 26, 20, 0.85));
 }
 
 .break-banner {
@@ -35,6 +81,8 @@
   text-align: center;
   font-weight: 800;
   color: var(--gold);
+  border-color: rgba(217, 180, 91, 0.35);
+  background: linear-gradient(180deg, rgba(217, 180, 91, 0.12), rgba(6, 26, 20, 0.88));
 }
 
 .public-profile-hero {
@@ -42,26 +90,13 @@
   padding: 1.25rem 1.15rem;
 }
 
-.stat-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.55rem;
-}
+@media (max-width: 520px) {
+  .tournament-hero-panel {
+    padding: 0.85rem;
+  }
 
-.stat-card {
-  padding: 0.75rem;
-}
-
-.stat-card-label {
-  font-size: var(--text-xs);
-  color: var(--muted);
-}
-
-.stat-card-value {
-  font-weight: 800;
-  font-size: var(--text-base);
-}
-
-.stat-card-value--gold {
-  color: var(--gold);
+  .tournament-entry-main .player-avatar {
+    width: 2rem;
+    height: 2rem;
+  }
 }

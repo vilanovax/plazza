@@ -3,6 +3,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { fetchMe } from "@/lib/client/api";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { useTournamentSocket } from "@/components/useTournamentSocket";
 import type { TournamentDetail } from "@/lib/tournament/detail";
 import { LoadingScreen, PageHeader, PageShell } from "@/components/ui";
@@ -118,13 +119,13 @@ function TournamentView({ d, now }: { d: TournamentDetail; now: number }) {
         <Info label="مجموع جایزه" value={d.prizePool.toLocaleString("fa")} gold />
         <Info label="تقسیم جایزه" value={payouts.join("/") + "٪"} />
         {lateRegOpen && (
-          <p style={{ gridColumn: "1 / -1", color: "var(--color-accent-400)", fontSize: "var(--text-sm)", fontWeight: 700 }}>
+          <p className="tournament-late-reg">
             🕒 ثبت‌نام با تأخیر تا پایان سطح {lateReg.toLocaleString("fa")} باز است
           </p>
         )}
         {running && d.tableId && (
-          <div style={{ gridColumn: "1 / -1" }}>
-            <Link href={`/table/${d.tableId}`} className="btn btn-primary" style={{ display: "block", textAlign: "center" }}>ورود به میز تورنومنت →</Link>
+          <div className="tournament-hero-span">
+            <Link href={`/table/${d.tableId}`} className="btn btn-primary tournament-table-link">ورود به میز تورنومنت →</Link>
           </div>
         )}
       </section>
@@ -136,9 +137,9 @@ function TournamentView({ d, now }: { d: TournamentDetail; now: number }) {
           </div>
           <div className="tournament-leaderboard">
             {payouts.map((p, i) => (
-              <div key={i} className="list-row" style={{ padding: "0.4rem 0" }}>
+              <div key={i} className="list-row tournament-prize-row">
                 <span>{`رتبه ${(i + 1).toLocaleString("fa")}`} <span className="info-cell-label">({p.toLocaleString("fa")}٪)</span></span>
-                <span className="stat-card-value--gold" style={{ fontWeight: 800 }}>{amounts[i].toLocaleString("fa")}</span>
+                <span className="stat-card-value--gold">{amounts[i].toLocaleString("fa")}</span>
               </div>
             ))}
           </div>
@@ -149,31 +150,34 @@ function TournamentView({ d, now }: { d: TournamentDetail; now: number }) {
         <div className="panel bubble-banner">🫧 مرحله حباب — یک حذف تا رسیدن به جوایز</div>
       )}
 
-      <h3 className="profile-section-title" style={{ marginBottom: "0.5rem" }}>جدول رده‌بندی</h3>
+      <h3 className="profile-section-title tournament-section-title">جدول رده‌بندی</h3>
       <div className="tournament-leaderboard">
         {sorted.map((e) => (
           <article
             key={e.userId}
             className={`panel list-row tournament-entry${e.status !== "active" ? " tournament-entry--inactive" : ""}${e.userId === shortStackId ? " tournament-entry--bubble" : ""}`}
           >
-            <div>
-              <div className="table-card-name">
-                {e.place ? `${e.place.toLocaleString("fa")}. ` : ""}{e.name}
-                {e.status === "winner" && " 👑"}
-                {e.userId === shortStackId && " 🫧"}
-              </div>
-              <div className="info-cell-label">
-                {e.status === "active"
-                  ? `استک: ${e.chips.toLocaleString("fa")}`
-                  : e.status === "busted"
-                    ? "حذف‌شده"
-                    : e.status === "winner"
-                      ? "برنده"
-                      : "ثبت‌نام شده"}
-                {e.rebuys > 0 ? ` · ری‌بای: ${e.rebuys.toLocaleString("fa")}` : ""}
+            <div className="tournament-entry-main">
+              <PlayerAvatar userId={e.userId} name={e.name} size={36} />
+              <div className="tournament-entry-text">
+                <div className="table-card-name">
+                  {e.place ? `${e.place.toLocaleString("fa")}. ` : ""}{e.name}
+                  {e.status === "winner" && " 👑"}
+                  {e.userId === shortStackId && " 🫧"}
+                </div>
+                <div className="info-cell-label">
+                  {e.status === "active"
+                    ? `استک: ${e.chips.toLocaleString("fa")}`
+                    : e.status === "busted"
+                      ? "حذف‌شده"
+                      : e.status === "winner"
+                        ? "برنده"
+                        : "ثبت‌نام شده"}
+                  {e.rebuys > 0 ? ` · ری‌بای: ${e.rebuys.toLocaleString("fa")}` : ""}
+                </div>
               </div>
             </div>
-            {e.prize > 0 && <div className="stat-card-value--gold" style={{ fontWeight: 800 }}>+{e.prize.toLocaleString("fa")}</div>}
+            {e.prize > 0 && <div className="stat-card-value--gold tournament-entry-prize">+{e.prize.toLocaleString("fa")}</div>}
           </article>
         ))}
       </div>

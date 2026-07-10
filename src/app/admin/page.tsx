@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
-import { Field, Input, LoadingScreen, PageHeader, PageShell, Select } from "@/components/ui";
+import { Field, Input, LoadingScreen, Modal, PageHeader, PageShell, Select } from "@/components/ui";
 
 type Tab = "users" | "topups" | "settlements" | "settings";
 
@@ -56,6 +56,7 @@ function UsersTab() {
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [nu, setNu] = useState({ username: "", displayName: "", password: "", role: "player" });
   const [err, setErr] = useState("");
+  const [creditUser, setCreditUser] = useState<AdminUser | null>(null);
   const load = useCallback(() => api<{ users: AdminUser[] }>("/api/admin/users").then((d) => setUsers(d.users)), []);
   useEffect(() => { load(); }, [load]);
 
@@ -64,21 +65,12 @@ function UsersTab() {
     try { await api("/api/admin/users", { method: "POST", body: nu }); setNu({ username: "", displayName: "", password: "", role: "player" }); load(); }
     catch (e) { setErr((e as Error).message); }
   }
-  async function credit(id: string) {
-    const raw = prompt("مبلغ برای شارژ (منفی برای کسر):", "1000");
-    if (raw == null) return;
-    const amount = Number(raw); if (!amount) return;
-    await api(`/api/admin/users/${id}/credit`, { method: "POST", body: { amount } }); load();
-  }
-  async function toggle(u: AdminUser) {
-    await api(`/api/admin/users/${u.id}/active`, { method: "POST", body: { active: !u.isActive } }); load();
-  }
 
   return (
     <div>
-      <div className="panel" style={{ padding: 14, marginBottom: 14 }}>
+      <div className="panel admin-panel">
         <div className="profile-section-title" style={{ marginBottom: 8 }}>ساخت کاربر جدید</div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <div className="admin-form-grid">
           <Input placeholder="نام کاربری" value={nu.username} onChange={(e) => setNu({ ...nu, username: e.target.value })} />
           <Input placeholder="نام نمایشی" value={nu.displayName} onChange={(e) => setNu({ ...nu, displayName: e.target.value })} />
           <Input type="password" placeholder="رمز عبور" value={nu.password} onChange={(e) => setNu({ ...nu, password: e.target.value })} />
@@ -93,20 +85,103 @@ function UsersTab() {
 
       <div className="lobby-grid">
         {users.map((u) => (
-          <div key={u.id} className="panel list-row" style={{ opacity: u.isActive ? 1 : 0.5 }}>
+          <div key={u.id} className={`panel list-row admin-user-card${u.isActive ? "" : " admin-user-card--inactive"}`}>
             <div>
-              <div style={{ fontWeight: 700 }}>{u.displayName} {u.role === "admin" ? "👑" : ""}</div>
-              <div style={{ color: "var(--muted)", fontSize: 12 }}>@{u.username}</div>
+              <div className="admin-user-name">{u.displayName} {u.role === "admin" ? "👑" : ""}</div>
+              <div className="admin-user-handle">@{u.username}</div>
             </div>
             <div className="list-row-actions">
-              <div style={{ color: "var(--gold)", fontWeight: 800 }}>{u.chipBalance.toLocaleString("fa")}</div>
-              <button className="btn btn-gold" style={{ fontSize: 12, padding: "0.3rem 0.6rem" }} onClick={() => credit(u.id)}>ژتون</button>
-              <button className="btn btn-ghost" style={{ fontSize: 12, padding: "0.3rem 0.6rem" }} onClick={() => toggle(u)}>{u.isActive ? "غیرفعال" : "فعال"}</button>
+              <div className="admin-user-balance">{u.chipBalance.toLocaleString("fa")}</div>
+              <button className="btn btn-gold admin-btn-sm" onClick={() => setCreditUser(u)}>ژتون</button>
+              <button className="btn btn-ghost admin-btn-sm" onClick={() => void toggle(u, load)}>{u.isActive ? "غیرفعال" : "فعال"}</button>
             </div>
           </div>
         ))}
       </div>
+
+      {creditUser && (
+        <CreditUserModal
+          user={creditUser}
+          onClose={() => setCreditUser(null)}
+          onDone={async () => {
+            setCreditUser(null);
+            await load();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+async function toggle(u: AdminUser, load: () => void) {
+  await api(`/api/admin/users/${u.id}/active`, { method: "POST", body: { active: !u.isActive } });
+  load();
+}
+
+function CreditUserModal({
+  user,
+  onClose,
+  onDone,
+}: {
+  user: AdminUser;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [amount, setAmount] = useState(1000);
+  const [note, setNote] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit() {
+    setErr("");
+    if (!amount || Number.isNaN(amount)) return setErr("مبلغ نامعتبر است");
+    setBusy(true);
+    try {
+      await api(`/api/admin/users/${user.id}/credit`, {
+        method: "POST",
+        body: { amount, note: note.trim() || undefined },
+      });
+      await onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="شارژ / کسر ژتون"
+      subtitle={`${user.displayName} — موجودی فعلی: ${user.chipBalance.toLocaleString("fa")}`}
+      onClose={onClose}
+      titleId="credit-user-title"
+    >
+      <Field label="مبلغ" htmlFor="credit-amount">
+        <Input
+          id="credit-amount"
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(Number(e.target.value))}
+          placeholder="مثبت برای شارژ، منفی برای کسر"
+        />
+      </Field>
+      <Field label="یادداشت (اختیاری)" htmlFor="credit-note">
+        <Input
+          id="credit-note"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="دلیل شارژ یا کسر"
+          maxLength={200}
+        />
+      </Field>
+      {err && <p className="login-error">{err}</p>}
+      <div className="sit-dialog-actions">
+        <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>انصراف</button>
+        <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={busy}>
+          {busy ? "در حال ثبت…" : "ثبت"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
@@ -121,16 +196,16 @@ function TopupsTab() {
   }
   return (
     <div style={{ display: "grid", gap: 6 }}>
-      {items.length === 0 && <div className="panel" style={{ padding: 16, color: "var(--muted)" }}>درخواست معلقی وجود ندارد.</div>}
+      {items.length === 0 && <div className="panel admin-empty">درخواست معلقی وجود ندارد.</div>}
       {items.map((t) => (
-        <div key={t.id} className="panel" style={{ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div key={t.id} className="panel admin-topup-row">
           <div>
             <div style={{ fontWeight: 700 }}>{t.userName} <span style={{ color: "var(--gold)" }}>+{t.amount.toLocaleString("fa")}</span></div>
-            <div style={{ color: "var(--muted)", fontSize: 12 }}>میز: {t.tableName}</div>
+            <div className="admin-topup-meta">میز: {t.tableName}</div>
           </div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => decide(t.id, "approved")}>تأیید</button>
-            <button className="btn btn-danger" style={{ fontSize: 12 }} onClick={() => decide(t.id, "rejected")}>رد</button>
+          <div className="admin-topup-actions">
+            <button className="btn btn-primary admin-btn-sm" onClick={() => decide(t.id, "approved")}>تأیید</button>
+            <button className="btn btn-danger admin-btn-sm" onClick={() => decide(t.id, "rejected")}>رد</button>
           </div>
         </div>
       ))}
@@ -153,11 +228,11 @@ function SettlementsTab() {
   }
   return (
     <div>
-      <div className="panel" style={{ padding: 14, marginBottom: 14 }}>
+      <div className="panel admin-settlement-panel">
         <div style={{ fontWeight: 700, marginBottom: 8 }}>موقعیت تسویه‌نشده هر کاربر</div>
-        <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 8 }}>مثبت = طلبکار، منفی = بدهکار (بر اساس ورودی‌های تسویه‌نشده)</div>
+        <div className="admin-settlement-hint">مثبت = طلبکار، منفی = بدهکار (بر اساس ورودی‌های تسویه‌نشده)</div>
         {rows.map((r) => (
-          <div key={r.userId} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}>
+          <div key={r.userId} className="admin-settlement-row">
             <span>{r.displayName}</span>
             <b style={{ color: r.net >= 0 ? "var(--accent)" : "var(--danger)" }}>{r.net.toLocaleString("fa")}</b>
           </div>
@@ -166,12 +241,12 @@ function SettlementsTab() {
       <div style={{ fontWeight: 700, marginBottom: 8 }}>دفتر کل — علامت‌گذاری تسویه</div>
       <div style={{ display: "grid", gap: 6 }}>
         {ledger.map((l) => (
-          <div key={l.id} className="panel" style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div key={l.id} className="panel admin-ledger-row">
             <div style={{ fontSize: 13 }}>
               <b>{l.userName}</b> · {l.type} · <span style={{ color: l.amount >= 0 ? "var(--accent)" : "var(--danger)" }}>{l.amount.toLocaleString("fa")}</span>
-              <div style={{ color: "var(--muted)", fontSize: 11 }}>{new Date(l.createdAt).toLocaleString("fa")}</div>
+              <div className="admin-ledger-meta">{new Date(l.createdAt).toLocaleString("fa")}</div>
             </div>
-            <button className={`btn ${l.settled ? "btn-ghost" : "btn-gold"}`} style={{ fontSize: 12 }} onClick={() => settle(l.id, !l.settled)}>
+            <button className={`btn ${l.settled ? "btn-ghost" : "btn-gold"} admin-btn-sm`} onClick={() => settle(l.id, !l.settled)}>
               {l.settled ? "تسویه‌شده ✓" : "تسویه"}
             </button>
           </div>
@@ -192,14 +267,16 @@ function SettingsTab() {
     </Field>
   );
   const bool = (k: string, label: string) => (
-    <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14 }}>
-      <input type="checkbox" checked={s[k] as boolean} onChange={(e) => setS({ ...s, [k]: e.target.checked })} />{label}</label>
+    <label className="admin-check-row">
+      <input type="checkbox" checked={s[k] as boolean} onChange={(e) => setS({ ...s, [k]: e.target.checked })} />
+      {label}
+    </label>
   );
   async function save() { await api("/api/admin/settings", { method: "PUT", body: s }); setSaved(true); setTimeout(() => setSaved(false), 1500); }
   return (
-    <div className="panel" style={{ padding: 16 }}>
+    <div className="panel admin-panel">
       <div style={{ fontWeight: 700, marginBottom: 10 }}>پیش‌فرض میزها و قوانین</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="admin-settings-grid">
         {num("default_small_blind", "اسمال بلایند")}
         {num("default_big_blind", "بیگ بلایند")}
         {num("default_min_buyin", "حداقل ورود")}
@@ -213,7 +290,7 @@ function SettingsTab() {
         {num("extra_time_sec", "زمان اضافه هر درخواست (ثانیه)")}
         {num("extra_time_requests", "تعداد درخواست زمان اضافه (۱- = نامحدود)")}
       </div>
-      <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+      <div className="admin-settings-bools">
         {bool("allow_self_topup", "بازیکن بدون تأیید مدیر بتواند تاپ‌آپ کند")}
         {bool("allow_self_register", "ثبت‌نام خودکار بازیکنان فعال باشد")}
       </div>

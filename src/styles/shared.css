@@ -134,7 +134,14 @@
 }
 
 .playing-card--hidden {
-  background: repeating-linear-gradient(45deg, #7d1d2b, #7d1d2b 6px, #8f2333 6px, #8f2333 12px);
+  --card-back: #b0203a;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--card-back),
+    var(--card-back) 6px,
+    color-mix(in srgb, var(--card-back) 82%, white) 6px,
+    color-mix(in srgb, var(--card-back) 82%, white) 12px
+  );
   border: 1px solid #d9b45b55;
 }
 

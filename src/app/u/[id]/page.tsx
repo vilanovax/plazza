@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
 import { stringToCard } from "@/lib/poker/cards";
 import { PlayingCard } from "@/components/PlayingCard";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { LoadingScreen, PageHeader, PageShell } from "@/components/ui";
 
 interface Honor { icon: string; label: string }
@@ -54,7 +55,7 @@ export default function PublicProfilePage({ params }: { params: Promise<{ id: st
         <div className="profile-hero-top">
           <div className="profile-avatar-wrap">
             <div className="profile-avatar-ring">
-              <span className="profile-avatar-emoji">{p.avatar || "🙂"}</span>
+              <PlayerAvatar avatar={p.avatar} userId={p.userId} name={p.displayName} size={72} />
             </div>
           </div>
           <div className="profile-hero-info">

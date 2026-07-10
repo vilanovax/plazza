@@ -87,15 +87,14 @@ export default function LoginPage() {
 
         {error && <p className="login-error" role="alert">{error}</p>}
 
-        <button className="btn btn-primary" style={{ width: "100%", marginTop: "0.5rem" }} disabled={busy}>
+        <button className="btn btn-primary login-btn-full" disabled={busy}>
           {busy ? "..." : mode === "login" ? "ورود" : "ثبت‌نام"}
         </button>
 
         <button
           type="button"
           onClick={() => setMode(mode === "login" ? "register" : "login")}
-          className="btn btn-ghost"
-          style={{ width: "100%", marginTop: "0.5rem" }}
+          className="btn btn-ghost login-btn-full"
         >
           {mode === "login" ? "حساب ندارید؟ ثبت‌نام کنید" : "قبلاً ثبت‌نام کرده‌اید؟ ورود"}
         </button>
