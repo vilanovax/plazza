@@ -47,12 +47,15 @@ export function registerSocketHandlers(io: SocketIOServer): void {
 
     socket.on("join", async ({ tableId }: { tableId: string }) => {
       try {
+        if (data.tableId && data.tableId !== tableId) {
+          gameManager.unregisterSocket(data.tableId, socket);
+          void socket.leave(`table:${data.tableId}`);
+        }
         await gameManager.ensureLoaded(tableId);
         data.tableId = tableId;
         socket.join(`table:${tableId}`);
+        gameManager.registerSocket(tableId, socket);
         gameManager.setConnected(tableId, data.userId, true);
-        // Pick up the joining player's latest cosmetic profile edits (this also
-        // broadcasts the refreshed state to the room).
         await gameManager.refreshProfile(tableId, data.userId);
       } catch (err) {
         fail(socket, err);
@@ -173,8 +176,9 @@ export function registerSocketHandlers(io: SocketIOServer): void {
 
     socket.on("disconnect", () => {
       if (data.tableId) {
+        gameManager.unregisterSocket(data.tableId, socket);
         gameManager.setConnected(data.tableId, data.userId, false);
-        void gameManager.broadcast(data.tableId);
+        gameManager.broadcast(data.tableId);
       }
     });
   });

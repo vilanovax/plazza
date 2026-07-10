@@ -11,7 +11,7 @@
  * On restart, tables are rehydrated from table_seats (last hand-end stacks);
  * any hand interrupted by a crash is abandoned and committed chips revert.
  */
-import type { Server as SocketIOServer } from "socket.io";
+import type { Server as SocketIOServer, Socket } from "socket.io";
 import { HoldemGame, InvalidActionError } from "../lib/poker/engine";
 import { cardToString } from "../lib/poker/cards";
 import { evaluate } from "../lib/poker/evaluator";
@@ -46,19 +46,40 @@ interface TableRuntime {
 
 const LOG_CAP = 60;
 
-function room(tableId: string): string {
-  return `table:${tableId}`;
-}
-
 export class GameManager {
   private io: SocketIOServer | null = null;
   private tables = new Map<string, TableRuntime>();
   private loading = new Map<string, Promise<TableRuntime>>();
+  /** Live sockets per table room — avoids fetchSockets() on every broadcast. */
+  private roomSockets = new Map<string, Set<Socket>>();
   /** Optional hook fired after a hand fully settles (used by tournaments). */
   onHandEndHook?: (tableId: string) => void;
 
   setIo(io: SocketIOServer): void {
     this.io = io;
+  }
+
+  /** Track a socket that joined a table room (called from the join handler). */
+  registerSocket(tableId: string, socket: Socket): void {
+    let set = this.roomSockets.get(tableId);
+    if (!set) {
+      set = new Set();
+      this.roomSockets.set(tableId, set);
+    }
+    set.add(socket);
+  }
+
+  /** Drop a socket from the table room registry (disconnect or table switch). */
+  unregisterSocket(tableId: string, socket: Socket): void {
+    const set = this.roomSockets.get(tableId);
+    if (!set) return;
+    set.delete(socket);
+    if (set.size === 0) this.roomSockets.delete(tableId);
+  }
+
+  private dropTableRuntime(tableId: string): void {
+    this.roomSockets.delete(tableId);
+    this.tables.delete(tableId);
   }
 
   // --------------------------------------------------------------------------
@@ -170,7 +191,7 @@ export class GameManager {
 
     this.pushLog(rt, `${user.display_name} با ${buyIn.toLocaleString("fa")} ژتون به میز اضافه شد`);
     this.maybeStartHand(rt);
-    await this.broadcast(tableId);
+    this.broadcast(tableId);
   }
 
   /**
@@ -227,7 +248,7 @@ export class GameManager {
     await repo.updateSeatStack(tableId, seat.seatIndex, seat.stack);
     this.pushLog(rt, `${seat.name ?? "بازیکن"} مقدار ${amount.toLocaleString("fa")} ژتون خرید`);
     this.maybeStartHand(rt);
-    await this.broadcast(tableId);
+    this.broadcast(tableId);
   }
 
   setConnected(tableId: string, userId: string, connected: boolean): void {
@@ -274,8 +295,8 @@ export class GameManager {
       });
       rt.game.leave(seat.seatIndex); // only mutate in-memory once the DB commit succeeded
     }
-    await this.broadcast(tableId);
-    this.tables.delete(tableId);
+    this.broadcast(tableId);
+    this.dropTableRuntime(tableId);
   }
 
   // --------------------------------------------------------------------------
@@ -308,7 +329,7 @@ export class GameManager {
         console.error("updateHandResult failed", err);
       }
     }
-    await this.broadcast(tableId);
+    this.broadcast(tableId);
   }
 
   /** Toggle a player's sit-out; auto-remove them after the configured window. */
@@ -336,7 +357,7 @@ export class GameManager {
       this.pushLog(rt, `${name} به بازی برگشت`);
     }
     this.maybeStartHand(rt);
-    await this.broadcast(tableId);
+    this.broadcast(tableId);
   }
 
   private clearSitOutTimer(rt: TableRuntime, userId: string): void {
@@ -415,7 +436,7 @@ export class GameManager {
       this.maybeStartHand(rt);
     }
     // Broadcast on both paths so clients see the break start and end symmetrically.
-    await this.broadcast(tableId);
+    this.broadcast(tableId);
   }
 
   private async startHand(rt: TableRuntime): Promise<void> {
@@ -466,7 +487,7 @@ export class GameManager {
       rt.actionTimer = setTimeout(() => this.onActionTimeout(rt), delay + 250);
     }
 
-    await this.broadcast(rt.tableId);
+    this.broadcast(rt.tableId);
   }
 
   private async onActionTimeout(rt: TableRuntime): Promise<void> {
@@ -559,7 +580,7 @@ export class GameManager {
     rt.game.config.bigBlind = bb;
     rt.game.config.ante = ante;
     this.pushLog(rt, `بلایندها به ${sb}/${bb} افزایش یافت`);
-    await this.broadcast(tableId);
+    this.broadcast(tableId);
   }
 
   async seatTournamentPlayer(tableId: string, seatIndex: number, userId: string, name: string, stack: number): Promise<void> {
@@ -592,7 +613,7 @@ export class GameManager {
     const rt = this.tables.get(tableId);
     if (!rt) return;
     this.maybeStartHand(rt);
-    void this.broadcast(tableId);
+    this.broadcast(tableId);
   }
 
   /** Remove a table's runtime without cashing play chips to the bank. */
@@ -605,8 +626,8 @@ export class GameManager {
     for (const seat of rt.game.seats) {
       if (seat.userId) await repo.removeSeat(tableId, seat.seatIndex).catch(() => {});
     }
-    await this.broadcast(tableId);
-    this.tables.delete(tableId);
+    this.broadcast(tableId);
+    this.dropTableRuntime(tableId);
   }
 
   logMessage(tableId: string, text: string): void {
@@ -632,7 +653,7 @@ export class GameManager {
     const seat = rt.game.seats.find((s) => s.userId === userId);
     const name = seat?.name ?? (await repo.getUserById(userId))?.display_name ?? "بازیکن";
     this.pushLog(rt, msg, "chat", { userId, name });
-    await this.broadcast(tableId);
+    this.broadcast(tableId);
   }
 
   /** Refresh a player's cached cosmetic profile at a table and broadcast so
@@ -642,7 +663,7 @@ export class GameManager {
     if (!rt) return;
     const seated = rt.game.seats.some((s) => s.userId === userId);
     if (seated && !rt.profiles.has(userId)) await this.cacheProfile(rt, userId);
-    await this.broadcast(tableId);
+    this.broadcast(tableId);
   }
 
   /** Fetch + cache a player's cosmetic profile for table display (best-effort). */
@@ -665,26 +686,31 @@ export class GameManager {
     }
   }
 
-  async broadcast(tableId: string): Promise<void> {
+  private attachProfiles(ps: ReturnType<HoldemGame["publicState"]>, rt: TableRuntime, viewerId: string | null): void {
+    for (const seat of ps.seats) {
+      if (!seat.userId) continue;
+      const p = rt.profiles.get(seat.userId);
+      if (p) {
+        seat.avatar = p.avatar;
+        seat.title = p.title;
+        seat.tagline = p.tagline;
+        seat.chipColor = p.chipColor;
+      }
+    }
+    if (viewerId) ps.myCardBack = rt.profiles.get(viewerId)?.cardBack ?? "";
+  }
+
+  broadcast(tableId: string): void {
     const rt = this.tables.get(tableId);
-    if (!rt || !this.io) return;
-    const sockets = await this.io.in(room(tableId)).fetchSockets();
+    if (!rt) return;
+    const sockets = this.roomSockets.get(tableId);
+    if (!sockets?.size) return;
     const log = rt.log;
     for (const s of sockets) {
       const uid = (s.data as { userId?: string }).userId ?? null;
       const ps = rt.game.publicState(uid);
       ps.log = log;
-      for (const seat of ps.seats) {
-        if (!seat.userId) continue;
-        const p = rt.profiles.get(seat.userId);
-        if (p) {
-          seat.avatar = p.avatar;
-          seat.title = p.title;
-          seat.tagline = p.tagline;
-          seat.chipColor = p.chipColor;
-        }
-      }
-      if (uid) ps.myCardBack = rt.profiles.get(uid)?.cardBack ?? "";
+      this.attachProfiles(ps, rt, uid);
       s.emit("state", ps);
     }
   }
