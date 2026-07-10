@@ -6,7 +6,7 @@
  */
 export function DealerAvatar({ size = 64 }: { size?: number }) {
   return (
-    <div style={{ textAlign: "center" }}>
+    <div className="dealer-avatar">
       <svg width={size} height={size} viewBox="0 0 100 100" role="img" aria-label="دیلر میز">
         {/* badge background */}
         <circle cx="50" cy="50" r="48" fill="#0a5240" stroke="#d9b45b" strokeWidth="2.5" />
@@ -38,7 +38,7 @@ export function DealerAvatar({ size = 64 }: { size?: number }) {
           <path d="M45 54 Q50 58 55 54" stroke="#c98b63" strokeWidth="2" fill="none" strokeLinecap="round" />
         </g>
       </svg>
-      <div style={{ fontSize: 10, color: "var(--gold)", marginTop: 2, fontWeight: 700 }}>دیلر</div>
+      <div className="dealer-avatar-label">دیلر</div>
     </div>
   );
 }

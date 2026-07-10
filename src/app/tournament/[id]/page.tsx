@@ -1,19 +1,11 @@
 "use client";
-import { use, useEffect, useState, useCallback, useRef } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, fetchMe } from "@/lib/client/api";
+import { fetchMe } from "@/lib/client/api";
+import { useTournamentSocket } from "@/components/useTournamentSocket";
+import type { TournamentDetail } from "@/lib/tournament/detail";
 import { LoadingScreen, PageHeader, PageShell } from "@/components/ui";
-
-interface Entry { userId: string; name: string; status: string; chips: number; place: number | null; rebuys: number; prize: number; }
-interface Level { level: number; sb: number; bb: number; ante: number; minutes: number; isBreak?: boolean }
-interface Detail {
-  id: string; name: string; status: string; buyInChips: number; startingStack: number;
-  maxPlayers: number; prizePool: number; currentLevel: number; levelEndsAt: string | null; tableId: string | null;
-  config: { payouts: number[]; lateRegThroughLevel?: number; breakEveryLevels?: number; breakMinutes?: number };
-  entries: Entry[];
-  blindSchedule: Level[];
-}
 
 const STATUS_FA: Record<string, string> = { scheduled: "در انتظار", running: "در حال اجرا", finishing: "در حال پایان", finished: "پایان‌یافته", cancelled: "لغو" };
 
@@ -34,49 +26,38 @@ function fmtCountdown(ms: number): string {
 export default function TournamentPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const [d, setD] = useState<Detail | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now()); // ticking clock for the level countdown
-  // Monotonic request counter: a slower earlier response is dropped so it can't
-  // overwrite a newer one. Because `load` is recreated (and re-invoked) when the
-  // id changes, an in-flight request for the previous id also loses the race and
-  // is discarded — its data never bleeds into the new tournament's page.
-  const genRef = useRef(0);
+  const { detail, error, connected } = useTournamentSocket(id);
+  const [now, setNow] = useState(() => Date.now());
 
-  const load = useCallback(() => {
-    const gen = ++genRef.current;
-    return api<Detail>(`/api/tournaments/${id}`)
-      .then((v) => { if (gen === genRef.current) { setD(v); setErr(null); } })
-      .catch((e) => { if (gen === genRef.current) setErr(e instanceof Error ? e.message : "خطا در دریافت اطلاعات تورنومنت"); });
-  }, [id]);
   useEffect(() => {
     fetchMe()
-      .then((u) => (u ? load() : router.replace("/login")))
+      .then((u) => {
+        if (!u) router.replace("/login");
+      })
       .catch(() => router.replace("/login"));
-  }, [router, load]);
+  }, [router]);
+
   useEffect(() => {
-    const t = setInterval(load, 4000); // light polling for live standings
-    return () => clearInterval(t);
-  }, [load]);
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000); // countdown tick
+    const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
 
-  if (!d) {
+  if (!detail) {
     return (
       <PageShell>
-        {err ? <p className="login-error" role="alert">{err}</p> : <LoadingScreen message="در حال بارگذاری تورنومنت…" />}
+        {error ? <p className="login-error" role="alert">{error}</p> : <LoadingScreen message={connected ? "در حال بارگذاری تورنومنت…" : "در حال اتصال…"} />}
       </PageShell>
     );
   }
 
+  return <TournamentView d={detail} now={now} />;
+}
+
+function TournamentView({ d, now }: { d: TournamentDetail; now: number }) {
   const running = d.status === "running";
   const cur = d.blindSchedule.find((l) => l.level === d.currentLevel);
   const next = d.blindSchedule.find((l) => l.level === d.currentLevel + 1);
   const onBreak = cur?.isBreak === true;
-  // Playable level = how many non-break entries up to and including the current
-  // position — what a player thinks of as "level N" regardless of breaks.
   const playLevel = d.blindSchedule.slice(0, d.currentLevel).filter((l) => !l.isBreak).length;
 
   const active = d.entries.filter((e) => e.status === "active");
@@ -87,8 +68,6 @@ export default function TournamentPage({ params }: { params: Promise<{ id: strin
   const payouts = d.config.payouts ?? [];
   const paidPlaces = payouts.length;
   const amounts = prizeAmounts(d.prizePool, payouts);
-  // On the bubble: one elimination away from the money. Flag the shortest active
-  // stack (most likely to bust next) so players see the tension.
   const onBubble = running && paidPlaces > 0 && playersLeft === paidPlaces + 1;
   const shortStackId = onBubble
     ? active.reduce((min, e) => (e.chips < min.chips ? e : min), active[0])?.userId

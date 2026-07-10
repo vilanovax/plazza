@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { loginAsAdmin, waitForLobby } from "./helpers";
 
 test.describe("API health", () => {
   test("returns ok when database is reachable", async ({ request }) => {
@@ -10,14 +11,10 @@ test.describe("API health", () => {
 });
 
 test.describe("Auth flow", () => {
-  test("admin can log in and reach lobby", async ({ page }) => {
-    await page.goto("/login");
-    await page.locator("#username").fill("admin");
-    await page.locator("#password").fill("admin1234");
-    await page.getByRole("button", { name: "ورود", exact: true }).click();
+  test.use({ storageState: { cookies: [], origins: [] } });
 
-    await expect(page).toHaveURL("/");
-    await expect(page.getByRole("heading", { name: "Plazza" })).toBeVisible();
+  test("admin can log in and reach lobby", async ({ page }) => {
+    await loginAsAdmin(page);
     await expect(page.getByText("موجودی ژتون")).toBeVisible();
   });
 
@@ -34,11 +31,7 @@ test.describe("Auth flow", () => {
 
 test.describe("Lobby", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.locator("#username").fill("admin");
-    await page.locator("#password").fill("admin1234");
-    await page.getByRole("button", { name: "ورود", exact: true }).click();
-    await expect(page).toHaveURL("/");
+    await waitForLobby(page);
   });
 
   test("shows tables tab and create button", async ({ page }) => {

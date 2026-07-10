@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production node .server/server.cjs",
     "lint": "eslint",
     "db:migrate": "tsx db/migrate.ts",
+    "db:rebuild-stats": "tsx db/rebuild-stats.ts",
     "db:seed": "tsx db/seed.ts",
     "test": "node --import tsx --test src/lib/poker/*.test.ts src/lib/tournament/*.test.ts src/lib/profile/*.test.ts",
     "test:e2e": "playwright test",

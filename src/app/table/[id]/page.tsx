@@ -168,7 +168,11 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           const isButton = state?.buttonSeat === i && state?.phase !== "waiting";
           const occupied = seat && seat.status !== "empty";
           return (
-            <div key={i} className="table-seat-slot" style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
+            <div
+              key={i}
+              className="table-seat-slot"
+              style={{ "--seat-x": `${pos.x}%`, "--seat-y": `${pos.y}%` } as React.CSSProperties}
+            >
               {occupied ? (
                 <SeatView
                   seat={seat!}
@@ -307,7 +311,12 @@ const SeatView = memo(function SeatView({ seat, isTurn, isButton, community, dea
           {isButton ? "🅑 " : ""}{seat.avatar ? `${seat.avatar} ` : ""}{seat.name}{!seat.isConnected ? " ⚠" : ""}
         </div>
         {seat.title && <div className="seat-title">«{seat.title}»</div>}
-        <div className="seat-stack" style={{ color: seat.chipColor || "var(--accent)" }}>{seat.stack.toLocaleString("fa")}</div>
+        <div
+          className="seat-stack"
+          style={seat.chipColor ? ({ "--seat-chip": seat.chipColor } as React.CSSProperties) : undefined}
+        >
+          {seat.stack.toLocaleString("fa")}
+        </div>
         {seat.status === "allin" && <div className="seat-tag-allin">آل‌این</div>}
         {seat.sitOut && <div className="seat-tag-sitout">سیت‌اوت</div>}
         {isTurn && deadline && <Countdown deadline={deadline} />}
@@ -599,11 +608,11 @@ interface PlayerStats {
   handsPlayed?: number; handsWon?: number; winRate?: number;
   buyInCount?: number; totalBought?: number; net?: number;
 }
-function StatRow({ label, value, color }: { label: string; value: string; color?: string }) {
+function StatRow({ label, value, tone }: { label: string; value: string; tone?: "gold" | "accent" | "danger" }) {
   return (
     <div className="stat-row">
       <span className="stat-row-label">{label}</span>
-      <b style={color ? { color } : undefined}>{value}</b>
+      <b className={tone ? `stat-row-value--${tone}` : undefined}>{value}</b>
     </div>
   );
 }
@@ -641,10 +650,14 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
       {stats && stats.statsPublic !== false && stats.handsPlayed !== undefined && (
         <div>
           <StatRow label="دست‌های برنده / کل" value={`${(stats.handsWon ?? 0).toLocaleString("fa")} / ${(stats.handsPlayed ?? 0).toLocaleString("fa")}`} />
-          <StatRow label="درصد برد" value={`${(stats.winRate ?? 0).toLocaleString("fa")}٪`} color="var(--gold)" />
-          <StatRow label="کل ژتون خریداری‌شده" value={(stats.totalBought ?? 0).toLocaleString("fa")} color="var(--accent)" />
+          <StatRow label="درصد برد" value={`${(stats.winRate ?? 0).toLocaleString("fa")}٪`} tone="gold" />
+          <StatRow label="کل ژتون خریداری‌شده" value={(stats.totalBought ?? 0).toLocaleString("fa")} tone="accent" />
           <StatRow label="تعداد دفعات خرید" value={(stats.buyInCount ?? 0).toLocaleString("fa")} />
-          <StatRow label="سود/زیان خالص" value={`${(stats.net ?? 0) >= 0 ? "+" : ""}${(stats.net ?? 0).toLocaleString("fa")}`} color={(stats.net ?? 0) >= 0 ? "var(--accent)" : "var(--danger)"} />
+          <StatRow
+            label="سود/زیان خالص"
+            value={`${(stats.net ?? 0) >= 0 ? "+" : ""}${(stats.net ?? 0).toLocaleString("fa")}`}
+            tone={(stats.net ?? 0) >= 0 ? "accent" : "danger"}
+          />
         </div>
       )}
       <Link href={`/u/${userId}`} className="btn btn-ghost stats-profile-link">

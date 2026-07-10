@@ -101,6 +101,8 @@
 
 .table-seat-slot {
   position: absolute;
+  left: var(--seat-x);
+  top: var(--seat-y);
   transform: translate(-50%, -50%);
   width: 96px;
 }
@@ -435,6 +437,29 @@
   color: var(--muted);
 }
 
+.stat-row-value--gold {
+  color: var(--gold);
+}
+
+.stat-row-value--accent {
+  color: var(--accent);
+}
+
+.stat-row-value--danger {
+  color: var(--danger);
+}
+
+.dealer-avatar {
+  text-align: center;
+}
+
+.dealer-avatar-label {
+  font-size: 10px;
+  color: var(--gold);
+  margin-top: 2px;
+  font-weight: 700;
+}
+
 .stats-hero {
   display: flex;
   align-items: center;
@@ -738,6 +763,7 @@
 
 .seat-stack {
   font-size: var(--text-xs);
+  color: var(--seat-chip, var(--accent));
 }
 
 .seat-tag-allin {

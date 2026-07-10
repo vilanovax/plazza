@@ -117,3 +117,49 @@
   font-size: var(--text-sm);
   color: var(--color-danger-300);
 }
+
+/* Playing cards (table, profile, public profile) */
+.playing-card {
+  --card-w: 46px;
+  --card-h: 64px;
+  width: var(--card-w);
+  height: var(--card-h);
+  border-radius: 7px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.playing-card--small {
+  --card-w: 34px;
+  --card-h: 48px;
+}
+
+.playing-card--hidden {
+  background: repeating-linear-gradient(45deg, #7d1d2b, #7d1d2b 6px, #8f2333 6px, #8f2333 12px);
+  border: 1px solid #d9b45b55;
+}
+
+.playing-card--face {
+  background: #f6f7f9;
+  border: 1px solid #cfd6de;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  line-height: 1;
+  color: #14181d;
+}
+
+.playing-card--red {
+  color: #d21b30;
+}
+
+.playing-card-rank,
+.playing-card-suit {
+  font-size: 20px;
+}
+
+.playing-card--small .playing-card-rank,
+.playing-card--small .playing-card-suit {
+  font-size: 15px;
+}

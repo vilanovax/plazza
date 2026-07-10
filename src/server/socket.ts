@@ -17,6 +17,7 @@ interface SocketData {
   username: string;
   role: "admin" | "player";
   tableId?: string;
+  tournamentId?: string;
 }
 
 function fail(socket: Socket, err: unknown) {
@@ -58,6 +59,23 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         gameManager.setConnected(tableId, data.userId, true);
         await gameManager.refreshProfile(tableId, data.userId);
         await tournamentManager.pushTableUpdateToSocket(tableId, socket);
+      } catch (err) {
+        fail(socket, err);
+      }
+    });
+
+    socket.on("join_tournament", async ({ tournamentId }: { tournamentId: string }) => {
+      try {
+        if (data.tournamentId && data.tournamentId !== tournamentId) {
+          tournamentManager.unregisterTournamentSocket(data.tournamentId, socket);
+          void socket.leave(`tournament:${data.tournamentId}`);
+        }
+        const t = await repo.getTournament(tournamentId);
+        if (!t) throw new InvalidActionError("تورنومنت یافت نشد");
+        data.tournamentId = tournamentId;
+        socket.join(`tournament:${tournamentId}`);
+        tournamentManager.registerTournamentSocket(tournamentId, socket);
+        await tournamentManager.pushDetailToSocket(tournamentId, socket);
       } catch (err) {
         fail(socket, err);
       }
@@ -176,6 +194,9 @@ export function registerSocketHandlers(io: SocketIOServer): void {
     });
 
     socket.on("disconnect", () => {
+      if (data.tournamentId) {
+        tournamentManager.unregisterTournamentSocket(data.tournamentId, socket);
+      }
       if (data.tableId) {
         gameManager.unregisterSocket(data.tableId, socket);
         gameManager.setConnected(data.tableId, data.userId, false);

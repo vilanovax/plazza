@@ -16,12 +16,15 @@ import { gameManager } from "./gameManager";
 import { InvalidActionError } from "../lib/poker/engine";
 import { validatePayouts, playableLevel } from "../lib/tournament/types";
 import { buildTableBanner } from "../lib/tournament/tableBanner";
+import { buildTournamentDetail } from "../lib/tournament/detail";
+import type { Socket } from "socket.io";
 
 const NEXT_LEVEL_GRACE_MS = 500;
 
 export class TournamentManager {
   private levelTimers = new Map<string, NodeJS.Timeout>();
   private tableToTournament = new Map<string, string>();
+  private tournamentSockets = new Map<string, Set<Socket>>();
   private processing = new Set<string>();
   private rebuying = new Set<string>();
   private lateRegistering = new Set<string>();
@@ -32,6 +35,74 @@ export class TournamentManager {
       const tid = this.tableToTournament.get(tableId);
       if (tid) void this.onHandEnd(tid, tableId);
     };
+  }
+
+  registerTournamentSocket(tournamentId: string, socket: Socket): void {
+    let set = this.tournamentSockets.get(tournamentId);
+    if (!set) {
+      set = new Set();
+      this.tournamentSockets.set(tournamentId, set);
+    }
+    set.add(socket);
+  }
+
+  unregisterTournamentSocket(tournamentId: string, socket: Socket): void {
+    const set = this.tournamentSockets.get(tournamentId);
+    if (!set) return;
+    set.delete(socket);
+    if (set.size === 0) this.tournamentSockets.delete(tournamentId);
+  }
+
+  private emitToTournamentPersonalized(
+    tournamentId: string,
+    event: string,
+    payloadFor: (userId: string, role: "admin" | "player") => unknown
+  ): void {
+    const sockets = this.tournamentSockets.get(tournamentId);
+    if (!sockets?.size) return;
+    for (const s of sockets) {
+      const data = s.data as { userId?: string; role?: "admin" | "player" };
+      const uid = data.userId ?? "";
+      const role = data.role ?? "player";
+      s.emit(event, payloadFor(uid, role));
+    }
+  }
+
+  /** Push full tournament detail to every socket watching this tournament. */
+  async broadcastDetailUpdate(tournamentId: string): Promise<void> {
+    const t = await repo.getTournament(tournamentId);
+    if (!t) {
+      for (const s of this.tournamentSockets.get(tournamentId) ?? []) s.emit("tournament_detail", null);
+      return;
+    }
+    const entries = await repo.listEntries(tournamentId);
+    const users = await repo.getUsersByIds(entries.map((e) => e.user_id));
+    const names = new Map(users.map((u) => [u.id, u.display_name]));
+    this.emitToTournamentPersonalized(tournamentId, "tournament_detail", (uid, role) =>
+      buildTournamentDetail(t, entries, names, uid, role)
+    );
+  }
+
+  async pushDetailToSocket(tournamentId: string, socket: Socket): Promise<void> {
+    const t = await repo.getTournament(tournamentId);
+    if (!t) {
+      socket.emit("tournament_detail", null);
+      return;
+    }
+    const entries = await repo.listEntries(tournamentId);
+    const users = await repo.getUsersByIds(entries.map((e) => e.user_id));
+    const names = new Map(users.map((u) => [u.id, u.display_name]));
+    const data = socket.data as { userId?: string; role?: "admin" | "player" };
+    socket.emit(
+      "tournament_detail",
+      buildTournamentDetail(t, entries, names, data.userId ?? "", data.role ?? "player")
+    );
+  }
+
+  /** Notify tournament detail page + table banner listeners. */
+  private notifyLive(tournamentId: string, tableId?: string | null): void {
+    void this.broadcastDetailUpdate(tournamentId);
+    if (tableId) void this.broadcastTableUpdate(tableId);
   }
 
   /** Push live tournament banner to every socket at this table (replaces HTTP polling). */
@@ -169,7 +240,7 @@ export class TournamentManager {
     gameManager.logMessage(table.id, `تورنومنت شروع شد — سطح ۱`);
     this.scheduleLevel(tournamentId, l1.minutes * 60_000);
     gameManager.startTable(table.id);
-    void this.broadcastTableUpdate(table.id);
+    void this.notifyLive(tournamentId, table.id);
   }
 
   // --------------------------------------------------------------------------
@@ -221,7 +292,7 @@ export class TournamentManager {
       if (!handLive) await this.onHandEnd(tournamentId, t.table_id, true);
     }
     if (!isTerminal) this.scheduleLevel(tournamentId, level.minutes * 60_000);
-    void this.broadcastTableUpdate(t.table_id);
+    void this.notifyLive(tournamentId, t.table_id);
   }
 
   // --------------------------------------------------------------------------
@@ -271,7 +342,7 @@ export class TournamentManager {
       await repo.setEntry(tournamentId, userId, { chips: startingStack });
       gameManager.logMessage(t.table_id, `${seat.name ?? "بازیکن"} ری‌بای کرد`);
       gameManager.startTable(t.table_id);
-      void this.broadcastTableUpdate(t.table_id);
+      void this.notifyLive(tournamentId, t.table_id);
     } finally {
       this.rebuying.delete(key);
     }
@@ -323,7 +394,7 @@ export class TournamentManager {
       }
       gameManager.logMessage(t.table_id, `${user.display_name} با ثبت‌نام با تأخیر وارد شد`);
       gameManager.startTable(t.table_id);
-      void this.broadcastTableUpdate(t.table_id);
+      void this.notifyLive(tournamentId, t.table_id);
     } finally {
       this.lateRegistering.delete(tournamentId);
     }
@@ -372,7 +443,7 @@ export class TournamentManager {
 
       const stillActive = (await repo.listEntries(tournamentId)).filter((e) => e.status === "active");
       if (stillActive.length <= 1) await this.finish(tournamentId, tableId, stillActive[0]?.user_id);
-      else void this.broadcastTableUpdate(tableId);
+      else void this.notifyLive(tournamentId, tableId);
     } finally {
       this.processing.delete(tournamentId);
     }
@@ -423,7 +494,7 @@ export class TournamentManager {
     this.clearLevelTimer(tournamentId);
     this.tableToTournament.delete(tableId);
     await repo.updateTournament(tournamentId, { status: "finished", finished_at: new Date().toISOString() });
-    void this.broadcastTableUpdate(tableId);
+    void this.notifyLive(tournamentId, tableId);
     await repo.closeTable(tableId);
     await gameManager.teardownTable(tableId);
   }
