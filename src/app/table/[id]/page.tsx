@@ -35,9 +35,10 @@ const PHASE_FA: Record<string, string> = {
 export default function TablePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, chat } = useTableSocket(id);
+  const { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat } = useTableSocket(id);
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
+  const [forfeitOpen, setForfeitOpen] = useState(false);
   const [statsFor, setStatsFor] = useState<{ userId: string; name: string; seatIndex: number } | null>(null);
   // Pre-selected action to auto-run when it becomes the player's turn.
   const [preAction, setPreAction] = useState<{ type: PreAction; handNo: number } | null>(null);
@@ -137,12 +138,17 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       )}
 
       <div className="table-felt-wrap">
-        <div className="table-felt" />
+        <div className="table-rail" aria-hidden>
+          <div className="table-felt" />
+        </div>
         <div className="table-dealer-anchor">
-          <DealerAvatar size={56} />
+          <DealerAvatar size={compact ? 38 : 56} />
         </div>
         <div className="table-center">
-          <div className="table-pot">پات: {(state?.pot ?? 0).toLocaleString("fa")}</div>
+          <div className="table-pot">
+            <span className="table-pot-label">پات</span>
+            <span className="table-pot-value">{(state?.pot ?? 0).toLocaleString("fa")}</span>
+          </div>
           <div className="table-community">
             {[0, 1, 2, 3, 4].map((i) => {
               const c = state?.community[i];
@@ -170,7 +176,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           return (
             <div
               key={i}
-              className="table-seat-slot"
+              className={`table-seat-slot${i === viewerSeat ? " table-seat-slot--viewer" : ""}${occupied ? " table-seat-slot--occupied" : " table-seat-slot--empty"}`}
               style={{ "--seat-x": `${pos.x}%`, "--seat-y": `${pos.y}%` } as React.CSSProperties}
             >
               {occupied ? (
@@ -178,6 +184,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
                   seat={seat!}
                   isTurn={isTurn}
                   isButton={isButton}
+                  isViewer={i === viewerSeat}
                   community={state?.community ?? []}
                   deadline={isTurn ? state?.actionDeadline : undefined}
                   showdown={state?.phase === "hand_complete"}
@@ -186,7 +193,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
               ) : (
                 <button className="btn btn-ghost seat-empty-btn"
                   onClick={() => mySeat ? null : setSitSeat(i)} disabled={!!mySeat}>
-                  {mySeat ? "خالی" : "نشستن"}
+                  {mySeat ? (compact ? "·" : "خالی") : "نشستن"}
                 </button>
               )}
             </div>
@@ -208,6 +215,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       {/* Controls */}
       {mySeat ? (
         <ActionBar
+          compact={compact}
           state={state!}
           mySeat={mySeat}
           act={act}
@@ -217,9 +225,12 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           onPreAction={selectPre}
           sitOut={sitOut}
           requestExtraTime={requestExtraTime}
+          isTournament={!!tourney}
+          onForfeit={() => setForfeitOpen(true)}
         />
       ) : (
         <div className="panel table-hint-panel">
+          <span className="table-hint-icon" aria-hidden>♠</span>
           برای بازی روی یک صندلی خالی بزنید و بنشینید.
         </div>
       )}
@@ -242,6 +253,14 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         <SitDialog seat={sitSeat} config={state.config} balance={me.chipBalance}
           onCancel={() => setSitSeat(null)}
           onSit={(buyIn) => { sit(sitSeat, buyIn); setSitSeat(null); }} />
+      )}
+
+      {forfeitOpen && mySeat && (
+        <ForfeitTournamentModal
+          stack={mySeat.stack}
+          onCancel={() => setForfeitOpen(false)}
+          onConfirm={() => { forfeitTournament(); setForfeitOpen(false); }}
+        />
       )}
 
       {statsFor && (
@@ -274,13 +293,13 @@ function seatPosition(index: number, viewerSeat: number | null, n: number, compa
   const anchor = viewerSeat ?? 0;
   const displayPos = ((index - anchor) % n + n) % n;
   const theta = Math.PI / 2 + (displayPos * 2 * Math.PI) / n;
-  const rx = compact ? 40 : 44;
-  const ry = compact ? 38 : 43;
+  const rx = compact ? 36 : 44;
+  const ry = compact ? 34 : 43;
   return { x: 50 + rx * Math.cos(theta), y: 50 + ry * Math.sin(theta) };
 }
 
-const SeatView = memo(function SeatView({ seat, isTurn, isButton, community, deadline, showdown, onSelect }: {
-  seat: SeatVM; isTurn: boolean; isButton: boolean; community: Card[]; deadline?: number; showdown?: boolean; onSelect?: () => void;
+const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, onSelect }: {
+  seat: SeatVM; isTurn: boolean; isButton: boolean; isViewer?: boolean; community: Card[]; deadline?: number; showdown?: boolean; onSelect?: () => void;
 }) {
   const folded = seat.status === "folded";
   // Show the current best hand for any cards we can actually see (the viewer's
@@ -293,7 +312,7 @@ const SeatView = memo(function SeatView({ seat, isTurn, isButton, community, dea
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
       aria-label={onSelect ? `آمار ${seat.name ?? "بازیکن"}` : undefined}
-      className={`seat-view${folded ? " seat-view--folded" : ""}${onSelect ? " seat-view--clickable" : ""}`}
+      className={`seat-view${folded ? " seat-view--folded" : ""}${onSelect ? " seat-view--clickable" : ""}${isViewer ? " seat-view--viewer" : ""}`}
     >
       {seat.betThisRound > 0 && (
         <div className="seat-bet">شرط: {seat.betThisRound.toLocaleString("fa")}</div>
@@ -505,11 +524,13 @@ function ShowCardsPrompt({ until, onShow }: { until: number; onShow: () => void 
   );
 }
 
-function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreAction, sitOut, requestExtraTime }: {
+function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, onPreAction, sitOut, requestExtraTime, isTournament, onForfeit }: {
+  compact?: boolean;
   state: PublicGameState; mySeat: SeatVM;
   act: (a: PlayerAction) => void; topup: (n: number) => void; leaveSeat: () => void;
   preAction: PreAction | null; onPreAction: (t: PreAction) => void;
   sitOut: (out: boolean) => void; requestExtraTime: () => void;
+  isTournament?: boolean; onForfeit?: () => void;
 }) {
   const myTurn = state.currentTurnSeat === mySeat.seatIndex && ["preflop", "flop", "turn", "river"].includes(state.phase);
   const etAllowed = state.config.extraTimeRequests; // -1 unlimited, 0 off
@@ -532,10 +553,10 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreActio
   const [topupAmt, setTopupAmt] = useState(state.config.topUpMin || state.config.bigBlind * 20);
 
   return (
-    <div className="panel action-bar">
+    <div className={`panel action-bar${myTurn ? " action-bar--turn" : ""}`}>
       {myTurn ? (
         <>
-          <div className="action-row">
+          <div className="action-row action-row--betting">
             <button className="btn btn-danger action-btn-flex" onClick={() => act({ type: "fold" })}>فولد</button>
             {toCall === 0 ? (
               <button className="btn btn-ghost action-btn-flex" onClick={() => act({ type: "check" })}>چک</button>
@@ -552,13 +573,15 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreActio
           {canRaise && (
             <div className="action-raise-row">
               <input type="range" className="action-raise-slider" min={minRaiseTo} max={maxTo} value={raiseTo} step={state.config.smallBlind}
-                onChange={(e) => setRaiseTo(Number(e.target.value))} />
-              <button className="btn btn-ghost action-btn-sm" onClick={() => setRaiseTo(maxTo)}>آل‌این</button>
+                onChange={(e) => setRaiseTo(Number(e.target.value))} aria-label="مبلغ رِیز" />
+              <button className="btn btn-ghost action-btn-sm action-allin-btn" onClick={() => setRaiseTo(maxTo)}>آل‌این</button>
             </div>
           )}
           {canExtraTime && (
             <button className="btn btn-ghost action-extra-time" onClick={requestExtraTime}>
-              ⏱ زمان اضافه (+{state.config.extraTimeSec.toLocaleString("fa")} ثانیه)
+              {compact
+                ? `⏱ +${state.config.extraTimeSec.toLocaleString("fa")}ث`
+                : `⏱ زمان اضافه (+${state.config.extraTimeSec.toLocaleString("fa")} ثانیه)`}
             </button>
           )}
         </>
@@ -566,10 +589,13 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreActio
         <div>
           {mySeat.status === "active" && ["preflop", "flop", "turn", "river"].includes(state.phase) && (
             <div className="action-pre-section">
-              <div className="action-pre-label">اقدام از پیش (وقتی نوبتت شد خودکار اجرا می‌شود)</div>
-              <div className="action-row">
-                <button className={`btn action-btn-flex action-btn-sm ${preAction === "fold" ? "btn-danger" : "btn-ghost"}`} onClick={() => onPreAction("fold")}>فولد خودکار</button>
-                <button className={`btn action-btn-flex action-btn-sm ${preAction === "check_fold" ? "btn-gold" : "btn-ghost"}`} onClick={() => onPreAction("check_fold")}>چک/فولد</button>
+              <div className="action-pre-label">
+                <span className="action-pre-label-full">اقدام از پیش (وقتی نوبتت شد خودکار اجرا می‌شود)</span>
+                <span className="action-pre-label-short">اقدام از پیش</span>
+              </div>
+              <div className="action-row action-row--pre">
+                <button className={`btn action-btn-flex action-btn-sm ${preAction === "fold" ? "btn-danger" : "btn-ghost"}`} onClick={() => onPreAction("fold")}>فولد</button>
+                <button className={`btn action-btn-flex action-btn-sm ${preAction === "check_fold" ? "btn-gold" : "btn-ghost"}`} onClick={() => onPreAction("check_fold")}>چ/ف</button>
                 <button className={`btn action-btn-flex action-btn-sm ${preAction === "check" ? "btn-primary" : "btn-ghost"}`} onClick={() => onPreAction("check")}>چک</button>
               </div>
             </div>
@@ -579,19 +605,25 @@ function ActionBar({ state, mySeat, act, topup, leaveSeat, preAction, onPreActio
               موجودی میز: <b className="action-stack-value">{mySeat.stack.toLocaleString("fa")}</b>
             </div>
             <div className="action-controls">
-              <button className={`btn action-btn-sm ${mySeat.sitOut ? "btn-primary" : "btn-ghost"}`} onClick={() => sitOut(!mySeat.sitOut)}>
-                {mySeat.sitOut ? "بازگشت به بازی" : "سیت‌اوت"}
-              </button>
-              {state.config.allowTopUp && (
+              {!isTournament && (
+                <button className={`btn action-btn-sm ${mySeat.sitOut ? "btn-primary" : "btn-ghost"}`} onClick={() => sitOut(!mySeat.sitOut)}>
+                  {mySeat.sitOut ? "بازگشت به بازی" : "سیت‌اوت"}
+                </button>
+              )}
+              {!isTournament && state.config.allowTopUp && (
                 <button className="btn btn-gold action-btn-sm" onClick={() => setShowTopup((s) => !s)}>+ تاپ‌آپ</button>
               )}
-              <button className="btn btn-ghost action-btn-sm" onClick={leaveSeat}>خروج از میز</button>
+              {isTournament ? (
+                <button className="btn btn-danger action-btn-sm" onClick={onForfeit}>انصراف از تورنومنت</button>
+              ) : (
+                <button className="btn btn-ghost action-btn-sm" onClick={leaveSeat}>خروج از میز</button>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {showTopup && (
+      {showTopup && !isTournament && (
         <div className="action-topup-row">
           <Input type="number" className="action-topup-input" value={topupAmt} onChange={(e) => setTopupAmt(Number(e.target.value))} />
           <button className="btn btn-primary" onClick={() => { topup(topupAmt); setShowTopup(false); }}>درخواست</button>
@@ -608,14 +640,16 @@ interface PlayerStats {
   handsPlayed?: number; handsWon?: number; winRate?: number;
   buyInCount?: number; totalBought?: number; net?: number;
 }
-function StatRow({ label, value, tone }: { label: string; value: string; tone?: "gold" | "accent" | "danger" }) {
+
+function StatChip({ label, value, tone = "default" }: { label: string; value: string; tone?: "gold" | "accent" | "danger" | "default" }) {
   return (
-    <div className="stat-row">
-      <span className="stat-row-label">{label}</span>
-      <b className={tone ? `stat-row-value--${tone}` : undefined}>{value}</b>
+    <div className={`stats-chip stats-chip--${tone}`}>
+      <span className="stats-chip-label">{label}</span>
+      <span className="stats-chip-value">{value}</span>
     </div>
   );
 }
+
 function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
   tableId: string; userId: string; name: string; canKick?: boolean; onKick?: () => void; onClose: () => void;
 }) {
@@ -627,48 +661,134 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
       .catch((e) => setErr((e as Error).message));
   }, [tableId, userId]);
 
+  const displayName = stats?.displayName ?? name;
+  const profile = stats?.profile;
+  const hasProfile = profile && (profile.avatar || profile.title || profile.tagline || profile.favoriteCards.length > 0);
+  const statsVisible = stats && stats.statsPublic !== false && stats.handsPlayed !== undefined;
+  const net = stats?.net ?? 0;
+
   return (
-    <Modal title={`📊 آمار ${stats?.displayName ?? name}`} onClose={onClose} titleId="player-stats-title">
-      {stats?.profile && (stats.profile.avatar || stats.profile.title || stats.profile.tagline || stats.profile.favoriteCards.length > 0) && (
-        <div className="stats-hero">
-          {stats.profile.avatar && <div className="stats-hero-avatar">{stats.profile.avatar}</div>}
-          <div className="stats-hero-body">
-            {stats.profile.title && <div className="stats-hero-title">«{stats.profile.title}»</div>}
-            {stats.profile.tagline && <div className="stats-hero-tagline">“{stats.profile.tagline}”</div>}
-          </div>
-          <div className="stats-hero-cards">
-            {stats.profile.favoriteCards.map((c) => <PlayingCard key={c} card={stringToCard(c)} small />)}
+    <Modal
+      className="player-stats-modal"
+      title={displayName}
+      subtitle="آمار این بازیکن در این میز"
+      onClose={onClose}
+      titleId="player-stats-title"
+    >
+      {hasProfile && (
+        <div className="stats-card-hero">
+          <div className="stats-card-hero-inner">
+            {profile!.avatar && (
+              <div className="stats-card-avatar" aria-hidden>{profile!.avatar}</div>
+            )}
+            <div className="stats-card-identity">
+              {profile!.title && <div className="stats-card-title">«{profile!.title}»</div>}
+              {profile!.tagline && <div className="stats-card-tagline">“{profile!.tagline}”</div>}
+            </div>
+            {profile!.favoriteCards.length > 0 && (
+              <div className="stats-card-hole">
+                {profile!.favoriteCards.map((c, i) => (
+                  <div key={c} className="stats-card-hole-card" style={{ "--hole-i": i } as React.CSSProperties}>
+                    <PlayingCard card={stringToCard(c)} small />
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
-      <div className="info-cell-label stats-section-label">آمار این بازیکن در این میز</div>
-      {err && <p className="login-error">{err}</p>}
-      {!stats && !err && <p className="empty-state-desc">در حال بارگذاری…</p>}
+
+      {err && <p className="login-error stats-card-error">{err}</p>}
+      {!stats && !err && (
+        <div className="stats-card-loading" aria-busy="true">
+          <span className="stats-card-loading-chip" aria-hidden />
+          <span>در حال بارگذاری آمار…</span>
+        </div>
+      )}
       {stats && stats.statsPublic === false && (
-        <p className="empty-state-desc">این بازیکن آمار خود را خصوصی کرده است.</p>
-      )}
-      {stats && stats.statsPublic !== false && stats.handsPlayed !== undefined && (
-        <div>
-          <StatRow label="دست‌های برنده / کل" value={`${(stats.handsWon ?? 0).toLocaleString("fa")} / ${(stats.handsPlayed ?? 0).toLocaleString("fa")}`} />
-          <StatRow label="درصد برد" value={`${(stats.winRate ?? 0).toLocaleString("fa")}٪`} tone="gold" />
-          <StatRow label="کل ژتون خریداری‌شده" value={(stats.totalBought ?? 0).toLocaleString("fa")} tone="accent" />
-          <StatRow label="تعداد دفعات خرید" value={(stats.buyInCount ?? 0).toLocaleString("fa")} />
-          <StatRow
-            label="سود/زیان خالص"
-            value={`${(stats.net ?? 0) >= 0 ? "+" : ""}${(stats.net ?? 0).toLocaleString("fa")}`}
-            tone={(stats.net ?? 0) >= 0 ? "accent" : "danger"}
-          />
+        <div className="stats-card-private">
+          <span className="stats-card-private-icon" aria-hidden>🔒</span>
+          <p>این بازیکن آمار خود را خصوصی کرده است.</p>
         </div>
       )}
-      <Link href={`/u/${userId}`} className="btn btn-ghost stats-profile-link">
-        پروفایل کامل و افتخارات →
-      </Link>
-      {canKick && onKick && (
-        <button className="btn btn-danger stats-kick-btn"
-          onClick={() => { if (confirm(`${name} از میز حذف شود؟`)) onKick(); }}>
-          حذف از میز (کیک)
-        </button>
+
+      {statsVisible && (
+        <>
+          <div className="stats-highlight-row">
+            <StatChip
+              label="درصد برد"
+              value={`${(stats.winRate ?? 0).toLocaleString("fa")}٪`}
+              tone="gold"
+            />
+            <StatChip
+              label="سود/زیان"
+              value={`${net >= 0 ? "+" : ""}${net.toLocaleString("fa")}`}
+              tone={net >= 0 ? "accent" : "danger"}
+            />
+          </div>
+          <div className="stats-detail-grid">
+            <StatChip
+              label="دست برنده"
+              value={(stats.handsWon ?? 0).toLocaleString("fa")}
+            />
+            <StatChip
+              label="کل دست‌ها"
+              value={(stats.handsPlayed ?? 0).toLocaleString("fa")}
+            />
+            <StatChip
+              label="ژتون خریداری‌شده"
+              value={(stats.totalBought ?? 0).toLocaleString("fa")}
+              tone="accent"
+            />
+            <StatChip
+              label="دفعات خرید"
+              value={(stats.buyInCount ?? 0).toLocaleString("fa")}
+            />
+          </div>
+        </>
       )}
+
+      <div className="stats-card-actions">
+        <Link href={`/u/${userId}`} className="btn btn-ghost stats-profile-link">
+          <span className="stats-profile-link-icon" aria-hidden>♠</span>
+          پروفایل کامل و افتخارات
+        </Link>
+        {canKick && onKick && (
+          <button
+            type="button"
+            className="btn btn-danger stats-kick-btn"
+            onClick={() => { if (confirm(`${name} از میز حذف شود؟`)) onKick(); }}
+          >
+            حذف از میز
+          </button>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function ForfeitTournamentModal({ stack, onCancel, onConfirm }: {
+  stack: number; onCancel: () => void; onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      title="انصراف از تورنومنت"
+      subtitle="این عمل قابل بازگشت نیست"
+      onClose={onCancel}
+      titleId="forfeit-tournament-title"
+      className="forfeit-tournament-modal"
+    >
+      <p className="forfeit-tournament-desc">
+        با انصراف، از تورنومنت حذف می‌شوید و رتبه‌تان ثبت می‌شود.
+        {stack > 0
+          ? ` ژتون‌های روی میز (${stack.toLocaleString("fa")}) به‌صورت متناسب با استک باقی‌مانده بازیکنان دیگر تقسیم می‌شود و به حساب بانکی شما برنمی‌گردد.`
+          : " ژتون روی میز ندارید."}
+      </p>
+      <p className="forfeit-tournament-hint">فقط بین دست‌ها می‌توانید انصراف دهید.</p>
+      <div className="forfeit-tournament-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel}>ادامه بازی</button>
+        <button type="button" className="btn btn-danger" onClick={onConfirm}>تأیید انصراف</button>
+      </div>
     </Modal>
   );
 }

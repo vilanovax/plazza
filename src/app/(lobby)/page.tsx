@@ -4,11 +4,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api, fetchMe, invalidateMeCache, type Me } from "@/lib/client/api";
 import { Input, Field, Modal, LoadingScreen } from "@/components/ui";
+import type { TableConfig } from "@/lib/poker/types";
 
 interface TableSummary {
   id: string;
   name: string;
-  config: { smallBlind: number; bigBlind: number; minBuyIn: number; maxBuyIn: number };
+  config: TableConfig;
   seated: number;
   maxSeats: number;
 }
@@ -35,6 +36,10 @@ export default function LobbyPage() {
   const [tables, setTables] = useState<TableSummary[]>([]);
   const [tab, setTab] = useState<"tables" | "tournaments">("tables");
   const [showCreateTable, setShowCreateTable] = useState(false);
+  const [editTable, setEditTable] = useState<TableSummary | null>(null);
+  const [closeTarget, setCloseTarget] = useState<TableSummary | null>(null);
+  const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState("");
   const [showCreateTournament, setShowCreateTournament] = useState(false);
   const [tournamentRefresh, setTournamentRefresh] = useState(0);
 
@@ -60,6 +65,21 @@ export default function LobbyPage() {
     await api("/api/auth/logout", { method: "POST" });
     invalidateMeCache();
     router.replace("/login");
+  }
+
+  async function confirmCloseTable() {
+    if (!closeTarget) return;
+    setCloseError("");
+    setClosing(true);
+    try {
+      await api(`/api/tables/${closeTarget.id}/close`, { method: "POST" });
+      setCloseTarget(null);
+      await load();
+    } catch (e) {
+      setCloseError((e as Error).message);
+    } finally {
+      setClosing(false);
+    }
   }
 
   if (!me) return <LoadingScreen message="در حال بارگذاری لابی…" />;
@@ -143,26 +163,13 @@ export default function LobbyPage() {
               </div>
             )}
             {tables.map((t) => (
-              <Link key={t.id} href={`/table/${t.id}`} className="panel table-card">
-                <div>
-                  <div className="table-card-name">{t.name}</div>
-                  <div className="table-card-meta">
-                    <span className="meta-pill meta-pill--gold">
-                      بلایند {t.config.smallBlind.toLocaleString("fa")}/{t.config.bigBlind.toLocaleString("fa")}
-                    </span>
-                    <span className="meta-pill">
-                      ورود {t.config.minBuyIn.toLocaleString("fa")}–{t.config.maxBuyIn.toLocaleString("fa")}
-                    </span>
-                  </div>
-                </div>
-                <div className="table-card-side">
-                  <SeatDots seated={t.seated} max={t.maxSeats} />
-                  <span className="table-card-enter">
-                    ورود
-                    <span aria-hidden>←</span>
-                  </span>
-                </div>
-              </Link>
+              <TableCard
+                key={t.id}
+                table={t}
+                isAdmin={isAdmin}
+                onEdit={() => setEditTable(t)}
+                onClose={() => { setCloseError(""); setCloseTarget(t); }}
+              />
             ))}
           </div>
         </section>
@@ -182,6 +189,24 @@ export default function LobbyPage() {
         <CreateTableModal
           onClose={() => setShowCreateTable(false)}
           onDone={() => { setShowCreateTable(false); load(); }}
+        />
+      )}
+
+      {editTable && (
+        <EditTableModal
+          table={editTable}
+          onClose={() => setEditTable(null)}
+          onDone={() => { setEditTable(null); load(); }}
+        />
+      )}
+
+      {closeTarget && (
+        <CloseTableModal
+          table={closeTarget}
+          busy={closing}
+          error={closeError}
+          onCancel={() => { if (!closing) setCloseTarget(null); }}
+          onConfirm={confirmCloseTable}
         />
       )}
 
@@ -338,6 +363,111 @@ function TournamentsSection({
   );
 }
 
+function TableCard({
+  table,
+  isAdmin,
+  onEdit,
+  onClose,
+}: {
+  table: TableSummary;
+  isAdmin: boolean;
+  onEdit: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <article className="table-card-wrap panel">
+      <Link href={`/table/${table.id}`} className="table-card">
+        <div>
+          <div className="table-card-name">{table.name}</div>
+          <div className="table-card-meta">
+            <span className="meta-pill meta-pill--gold">
+              بلایند {table.config.smallBlind.toLocaleString("fa")}/{table.config.bigBlind.toLocaleString("fa")}
+            </span>
+            <span className="meta-pill">
+              ورود {table.config.minBuyIn.toLocaleString("fa")}–{table.config.maxBuyIn.toLocaleString("fa")}
+            </span>
+            <span className="meta-pill">
+              {table.maxSeats.toLocaleString("fa")} نفره
+            </span>
+          </div>
+        </div>
+        <div className="table-card-side">
+          <SeatDots seated={table.seated} max={table.maxSeats} />
+          <span className="table-card-enter">
+            ورود
+            <span aria-hidden>←</span>
+          </span>
+        </div>
+      </Link>
+      {isAdmin && (
+        <div className="table-card-admin" role="group" aria-label={`مدیریت ${table.name}`}>
+          <button
+            type="button"
+            className="btn btn-ghost table-card-admin-btn"
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+          >
+            ویرایش
+          </button>
+          <button
+            type="button"
+            className="btn btn-danger table-card-admin-btn"
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+          >
+            بستن میز
+          </button>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function CloseTableModal({
+  table,
+  busy,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  table: TableSummary;
+  busy: boolean;
+  error: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      title="بستن میز"
+      subtitle={table.name}
+      onClose={onCancel}
+      titleId="close-table-title"
+      className="close-table-modal"
+    >
+      <p className="close-table-desc">
+        {table.seated > 0
+          ? `${table.seated.toLocaleString("fa")} بازیکن روی میز است. با بستن میز، ژتون‌های روی میز به حساب بازیکنان برمی‌گردد.`
+          : "این میز از لابی حذف می‌شود و دیگر قابل ورود نخواهد بود."}
+      </p>
+      <div className="close-table-meta">
+        <span className="meta-pill meta-pill--gold">
+          بلایند {table.config.smallBlind.toLocaleString("fa")}/{table.config.bigBlind.toLocaleString("fa")}
+        </span>
+        <span className="meta-pill">
+          {table.seated.toLocaleString("fa")}/{table.maxSeats.toLocaleString("fa")} بازیکن
+        </span>
+      </div>
+      {error && <p className="create-error">{error}</p>}
+      <div className="sit-dialog-actions">
+        <button type="button" className="btn btn-ghost" onClick={onCancel} disabled={busy}>
+          انصراف
+        </button>
+        <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={busy}>
+          {busy ? "در حال بستن…" : "بله، میز بسته شود"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 function CreateTableModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const [stakeId, setStakeId] = useState<(typeof STAKES)[number]["id"]>("low");
   const [name, setName] = useState("");
@@ -479,6 +609,123 @@ function CreateTableModal({ onClose, onDone }: { onClose: () => void; onDone: ()
         <button type="button" className="btn btn-primary create-submit" onClick={create} disabled={busy}>
           {busy ? "در حال ساخت…" : `ساخت «${tableName}»`}
         </button>
+    </Modal>
+  );
+}
+
+function EditTableModal({
+  table,
+  onClose,
+  onDone,
+}: {
+  table: TableSummary;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [name, setName] = useState(table.name);
+  const [smallBlind, setSmallBlind] = useState(table.config.smallBlind);
+  const [bigBlind, setBigBlind] = useState(table.config.bigBlind);
+  const [minBuyIn, setMinBuyIn] = useState(table.config.minBuyIn);
+  const [maxBuyIn, setMaxBuyIn] = useState(table.config.maxBuyIn);
+  const [maxSeats, setMaxSeats] = useState(table.config.maxSeats);
+  const [thinkTimeSec, setThinkTimeSec] = useState(table.config.thinkTimeSec);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    setErr("");
+    setBusy(true);
+    try {
+      await api(`/api/tables/${table.id}`, {
+        method: "PATCH",
+        body: {
+          name: name.trim() || table.name,
+          smallBlind,
+          bigBlind,
+          minBuyIn,
+          maxBuyIn,
+          maxSeats,
+          thinkTimeSec,
+        },
+      });
+      onDone();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="ویرایش میز"
+      subtitle={`${table.seated.toLocaleString("fa")} بازیکن seated · تغییر بلایند فقط بین دست‌ها`}
+      onClose={onClose}
+      titleId="edit-table-title"
+      className="edit-table-modal"
+    >
+      <Field label="نام میز" htmlFor="edit-table-name">
+        <Input id="edit-table-name" value={name} onChange={(e) => setName(e.target.value)} />
+      </Field>
+
+      <div className="create-advanced-grid">
+        <label>بلایند کوچک
+          <input className="ui-input" type="number" min={1} value={smallBlind} onChange={(e) => setSmallBlind(Number(e.target.value))} />
+        </label>
+        <label>بلایند بزرگ
+          <input className="ui-input" type="number" min={1} value={bigBlind} onChange={(e) => setBigBlind(Number(e.target.value))} />
+        </label>
+        <label>حداقل ورود
+          <input className="ui-input" type="number" min={1} value={minBuyIn} onChange={(e) => setMinBuyIn(Number(e.target.value))} />
+        </label>
+        <label>حداکثر ورود
+          <input className="ui-input" type="number" min={1} value={maxBuyIn} onChange={(e) => setMaxBuyIn(Number(e.target.value))} />
+        </label>
+      </div>
+
+      <div className="ui-field">
+        <div className="ui-label"><span>تعداد صندلی</span></div>
+        <div className="pill-row" role="group" aria-label="تعداد صندلی">
+          {[2, 6, 9].map((n) => (
+            <button
+              key={n}
+              type="button"
+              className={`pill-btn${maxSeats === n ? " pill-btn--active" : ""}`}
+              onClick={() => setMaxSeats(n)}
+              aria-pressed={maxSeats === n}
+              disabled={n < table.seated}
+            >
+              {n.toLocaleString("fa")} نفره
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="ui-field">
+        <div className="ui-label"><span>زمان فکر</span></div>
+        <div className="pill-row" role="group" aria-label="زمان فکر">
+          {[20, 30, 45].map((n) => (
+            <button
+              key={n}
+              type="button"
+              className={`pill-btn${thinkTimeSec === n ? " pill-btn--active" : ""}`}
+              onClick={() => setThinkTimeSec(n)}
+              aria-pressed={thinkTimeSec === n}
+            >
+              {n.toLocaleString("fa")} ثانیه
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {err && <p className="create-error">{err}</p>}
+
+      <div className="sit-dialog-actions">
+        <button type="button" className="btn btn-ghost" onClick={onClose}>انصراف</button>
+        <button type="button" className="btn btn-primary" onClick={save} disabled={busy}>
+          {busy ? "در حال ذخیره…" : "ذخیره تغییرات"}
+        </button>
+      </div>
     </Modal>
   );
 }

@@ -15,6 +15,7 @@ import type { TournamentRow } from "../lib/models";
 import { gameManager } from "./gameManager";
 import { InvalidActionError } from "../lib/poker/engine";
 import { validatePayouts, playableLevel } from "../lib/tournament/types";
+import { splitChipsProportionally } from "../lib/tournament/chipSplit";
 import { buildTableBanner } from "../lib/tournament/tableBanner";
 import { buildTournamentDetail } from "../lib/tournament/detail";
 import type { Socket } from "socket.io";
@@ -397,6 +398,71 @@ export class TournamentManager {
       void this.notifyLive(tournamentId, t.table_id);
     } finally {
       this.lateRegistering.delete(tournamentId);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Voluntary forfeit — player leaves the tournament between hands
+  // --------------------------------------------------------------------------
+  async forfeitByTable(tableId: string, userId: string): Promise<void> {
+    const tournamentId =
+      this.tableToTournament.get(tableId) ?? (await repo.getTournamentByTable(tableId))?.id;
+    if (!tournamentId) throw new InvalidActionError("این میز تورنومنت نیست");
+    await this.forfeitPlayer(tournamentId, userId, tableId);
+  }
+
+  async forfeitPlayer(tournamentId: string, userId: string, tableId?: string): Promise<void> {
+    if (this.processing.has(tournamentId)) throw new InvalidActionError("لطفاً چند لحظه صبر کنید");
+    this.processing.add(tournamentId);
+    try {
+      const t = await repo.getTournament(tournamentId);
+      if (!t || t.status !== "running") throw new InvalidActionError("تورنومنت فعال نیست");
+      const tid = tableId ?? t.table_id;
+      if (!tid) throw new InvalidActionError("میز تورنومنت یافت نشد");
+
+      const entry = await repo.getEntry(tournamentId, userId);
+      if (!entry || entry.status !== "active") throw new InvalidActionError("شما در این تورنومنت فعال نیستید");
+
+      const rt = gameManager.getRuntime(tid);
+      if (!rt?.isTournament) throw new InvalidActionError("میز فعال نیست");
+      if (rt.game.phase !== "waiting" && rt.game.phase !== "hand_complete") {
+        throw new InvalidActionError("تا پایان دست فعلی نمی‌توانید انصراف دهید");
+      }
+
+      const seat = rt.game.seats.find((s) => s.userId === userId);
+      if (!seat) throw new InvalidActionError("شما سر این میز نیستید");
+
+      const active = (await repo.listEntries(tournamentId)).filter((e) => e.status === "active");
+      const place = active.length;
+      const name = seat.name ?? "بازیکن";
+      const amount = seat.stack;
+      const others = rt.game.seats.filter((s) => s.userId && s.userId !== userId);
+
+      if (amount > 0 && others.length > 0) {
+        const splitMap = splitChipsProportionally(
+          amount,
+          others.map((s) => ({ id: s.userId as string, weight: s.stack }))
+        );
+        await gameManager.redistributeTournamentForfeit(tid, userId, splitMap);
+        for (const s of others) {
+          if (s.userId) await repo.setEntry(tournamentId, s.userId, { chips: s.stack });
+        }
+      }
+
+      await repo.setEntry(tournamentId, userId, { place, status: "busted", chips: 0 });
+      const splitNote =
+        amount > 0 && others.length > 0
+          ? ` — ${amount.toLocaleString("fa")} ژتون بین بازیکنان باقی‌مانده تقسیم شد`
+          : amount > 0
+            ? ` — ${amount.toLocaleString("fa")} ژتون از بازی خارج شد`
+            : "";
+      await gameManager.removeTournamentPlayer(tid, userId, `${name} انصراف داد (رتبه ${place})${splitNote}`);
+
+      const stillActive = (await repo.listEntries(tournamentId)).filter((e) => e.status === "active");
+      if (stillActive.length <= 1) await this.finish(tournamentId, tid, stillActive[0]?.user_id);
+      else void this.notifyLive(tournamentId, tid);
+    } finally {
+      this.processing.delete(tournamentId);
     }
   }
 

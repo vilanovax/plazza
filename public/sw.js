@@ -23,7 +23,7 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
-function isNextStatic(url: URL): boolean {
+function isNextStatic(url) {
   return url.pathname.startsWith("/_next/static/");
 }
 

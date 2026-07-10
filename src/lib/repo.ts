@@ -269,11 +269,11 @@ export async function createTable(
 
 export async function listOpenTables(): Promise<PokerTableRow[]> {
   return query<PokerTableRow>(
-    "SELECT * FROM poker_tables WHERE status = 'open' ORDER BY created_at DESC"
+    "SELECT * FROM poker_tables WHERE status = 'open' AND tournament_id IS NULL ORDER BY created_at DESC"
   );
 }
 
-/** Open tables with seated counts in one query (lobby list). */
+/** Open cash-game tables with seated counts in one query (lobby list). */
 export async function listOpenTablesWithCounts(): Promise<
   Array<{ id: string; name: string; config: TableConfig; seated: number; maxSeats: number }>
 > {
@@ -285,6 +285,7 @@ export async function listOpenTablesWithCounts(): Promise<
        FROM poker_tables t
        LEFT JOIN table_seats s ON s.table_id = t.id AND s.user_id IS NOT NULL
       WHERE t.status = 'open'
+        AND t.tournament_id IS NULL
       GROUP BY t.id
       ORDER BY t.created_at DESC`
   );
@@ -311,6 +312,20 @@ export async function getTable(id: string): Promise<PokerTableRow | null> {
 
 export async function closeTable(id: string): Promise<void> {
   await query("UPDATE poker_tables SET status = 'closed', closed_at = now() WHERE id = $1", [id]);
+}
+
+export async function updateTable(
+  id: string,
+  input: { name?: string; config?: TableConfig }
+): Promise<PokerTableRow | null> {
+  const row = await getTable(id);
+  if (!row || row.status !== "open") return null;
+  const name = input.name ?? row.name;
+  const config = input.config ?? row.config;
+  return one<PokerTableRow>(
+    `UPDATE poker_tables SET name = $2, config = $3 WHERE id = $1 AND status = 'open' RETURNING *`,
+    [id, name, JSON.stringify(config)]
+  );
 }
 
 // Persisted seat occupancy -------------------------------------------------

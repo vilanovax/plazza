@@ -270,6 +270,29 @@ export class GameManager {
     if (!rt) {
       const row = await repo.getTable(tableId);
       if (row?.tournament_id) throw new InvalidActionError("میز تورنومنت با پایان تورنومنت بسته می‌شود");
+      const seats = await repo.listSeats(tableId);
+      for (const seat of seats) {
+        if (!seat.user_id) {
+          await repo.removeSeat(tableId, seat.seat_index);
+          continue;
+        }
+        const chips = Number(seat.stack);
+        await tx(async (client) => {
+          if (chips > 0) {
+            await repo.applyLedgerTx(client, {
+              userId: seat.user_id,
+              type: "cash_out",
+              amount: chips,
+              tableId,
+              note: "بسته‌شدن میز",
+            });
+          }
+          await client.query("DELETE FROM table_seats WHERE table_id = $1 AND seat_index = $2", [
+            tableId,
+            seat.seat_index,
+          ]);
+        });
+      }
       return;
     }
     if (rt.isTournament) throw new InvalidActionError("میز تورنومنت با پایان تورنومنت بسته می‌شود");
@@ -297,6 +320,47 @@ export class GameManager {
     }
     this.broadcast(tableId);
     this.dropTableRuntime(tableId);
+  }
+
+  /** Admin: rename or adjust table settings (not for tournament tables). */
+  async updateTable(tableId: string, input: { name?: string; config?: Partial<TableConfig> }): Promise<void> {
+    const row = await repo.getTable(tableId);
+    if (!row || row.status !== "open") throw new InvalidActionError("میز یافت نشد");
+    if (row.tournament_id) throw new InvalidActionError("میز تورنومنت قابل ویرایش نیست");
+
+    const merged: TableConfig = { ...row.config, ...input.config };
+    if (input.name) merged.name = input.name;
+
+    const { smallBlind: sb, bigBlind: bb, minBuyIn, maxBuyIn, maxSeats } = merged;
+    if (!Number.isFinite(sb) || !Number.isFinite(bb) || sb <= 0 || bb <= 0 || sb > bb) {
+      throw new InvalidActionError("مقادیر بلایند نامعتبر است");
+    }
+    if (minBuyIn < bb || maxBuyIn < minBuyIn) {
+      throw new InvalidActionError("محدوده ورود نامعتبر است");
+    }
+    if (maxSeats < 2 || maxSeats > 9) {
+      throw new InvalidActionError("تعداد صندلی نامعتبر است");
+    }
+
+    const rt = this.tables.get(tableId);
+    if (input.config && rt) {
+      const phase = rt.game.phase;
+      if (phase !== "waiting" && phase !== "hand_complete") {
+        throw new InvalidActionError("تا پایان دست جاری نمی‌توان تنظیمات را تغییر داد");
+      }
+      const seated = rt.game.seats.filter((s) => s.userId).length;
+      if (maxSeats < seated) {
+        throw new InvalidActionError("صندلی کمتر از تعداد بازیکنان نشسته است");
+      }
+      Object.assign(rt.game.config, merged);
+      this.broadcast(tableId);
+    } else if (input.name && rt) {
+      rt.game.config.name = merged.name;
+      this.broadcast(tableId);
+    }
+
+    const updated = await repo.updateTable(tableId, { name: merged.name, config: merged });
+    if (!updated) throw new InvalidActionError("میز یافت نشد");
   }
 
   // --------------------------------------------------------------------------
@@ -607,6 +671,34 @@ export class GameManager {
     if (name === null) return;
     this.pushLog(rt, reason);
     await this.afterMutation(rt);
+  }
+
+  /**
+   * Move a forfeiting player's remaining stack to other seated players before
+   * they are removed. Caller must verify the hand is not live.
+   */
+  async redistributeTournamentForfeit(
+    tableId: string,
+    fromUserId: string,
+    splitMap: Map<string, number>
+  ): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) throw new InvalidActionError("میز فعال نیست");
+    const seat = rt.game.seats.find((s) => s.userId === fromUserId);
+    if (!seat) throw new InvalidActionError("بازیکن یافت نشد");
+    const total = [...splitMap.values()].reduce((a, b) => a + b, 0);
+    if (total <= 0) return;
+    if (total > seat.stack) throw new InvalidActionError("خطای تقسیم ژتون");
+
+    seat.stack -= total;
+    await repo.updateSeatStack(tableId, seat.seatIndex, seat.stack);
+
+    for (const s of rt.game.seats) {
+      if (!s.userId || s.userId === fromUserId) continue;
+      const add = splitMap.get(s.userId) ?? 0;
+      if (add > 0) await this.addTournamentChips(tableId, s.userId, add);
+    }
+    this.broadcast(tableId);
   }
 
   startTable(tableId: string): void {

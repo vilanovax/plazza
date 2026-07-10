@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
 import { LoadingScreen, PageHeader, PageShell } from "@/components/ui";
@@ -44,6 +44,21 @@ function isUnsettled(e: Entry) {
   return !e.settled && ["admin_credit", "admin_debit", "settlement"].includes(e.type);
 }
 
+function formatDayLabel(iso: string) {
+  const d = new Date(iso);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfEntry = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.round((startOfToday.getTime() - startOfEntry.getTime()) / 86_400_000);
+  if (diffDays === 0) return "امروز";
+  if (diffDays === 1) return "دیروز";
+  return d.toLocaleDateString("fa", { weekday: "long", month: "long", day: "numeric" });
+}
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("fa", { hour: "2-digit", minute: "2-digit" });
+}
+
 export default function AccountPage() {
   const router = useRouter();
   const [balance, setBalance] = useState<number | null>(null);
@@ -59,67 +74,109 @@ export default function AccountPage() {
     });
   }, [router]);
 
+  const unsettledCount = useMemo(() => ledger.filter(isUnsettled).length, [ledger]);
+  const groups = useMemo(() => {
+    const map = new Map<string, Entry[]>();
+    for (const e of ledger) {
+      const key = new Date(e.createdAt).toDateString();
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(e);
+    }
+    return [...map.entries()].map(([key, items]) => ({
+      label: formatDayLabel(items[0]!.createdAt),
+      items,
+    }));
+  }, [ledger]);
+
   if (balance === null) return <LoadingScreen message="در حال بارگذاری حساب…" />;
 
   return (
-    <PageShell>
+    <PageShell className="account-shell">
       <PageHeader title="حساب من" />
 
-      <div className="panel account-balance">
-        <div className="account-balance-label">موجودی ژتون</div>
-        <div className="account-balance-amount">{balance.toLocaleString("fa")}</div>
-        <span className="account-balance-unit">ژتون</span>
-        <div className="account-chips" aria-hidden>
-          <span className="account-chip" />
-          <span className="account-chip" />
-          <span className="account-chip" />
+      <div className="account-balance">
+        <div className="account-balance-glow" aria-hidden />
+        <div className="account-balance-inner">
+          <div className="account-balance-top">
+            <span className="account-balance-icon" aria-hidden>🪙</span>
+            <span className="account-balance-label">موجودی ژتون</span>
+          </div>
+          <div className="account-balance-amount">{balance.toLocaleString("fa")}</div>
+          <span className="account-balance-unit">ژتون قابل استفاده</span>
+          <div className="account-chips" aria-hidden>
+            <span className="account-chip account-chip--1" />
+            <span className="account-chip account-chip--2" />
+            <span className="account-chip account-chip--3" />
+          </div>
         </div>
       </div>
 
+      {unsettledCount > 0 && (
+        <div className="account-unsettled-banner" role="status">
+          <span className="account-unsettled-icon" aria-hidden>⏳</span>
+          <span>
+            {unsettledCount.toLocaleString("fa")} تراکنش تسویه‌نشده — منتظر تأیید مدیر
+          </span>
+        </div>
+      )}
+
       <div className="account-section-head">
         <h2 className="account-section-title">تاریخچه تراکنش‌ها</h2>
-        <span className="lobby-count">{ledger.length.toLocaleString("fa")}</span>
+        <span className="account-count">{ledger.length.toLocaleString("fa")}</span>
       </div>
 
       <div className="ledger-list">
         {ledger.length === 0 && (
-          <div className="panel empty-state">
-            <div className="empty-state-icon" aria-hidden>📋</div>
-            <p className="empty-state-title">تراکنشی ثبت نشده</p>
-            <p className="empty-state-desc">
+          <div className="panel account-empty">
+            <div className="account-empty-icon" aria-hidden>♠</div>
+            <p className="account-empty-title">تراکنشی ثبت نشده</p>
+            <p className="account-empty-desc">
               وقتی وارد میز شوید یا مدیر حسابتان را شارژ کند، اینجا نمایش داده می‌شود.
             </p>
           </div>
         )}
-        {ledger.map((e) => {
-          const credit = e.amount >= 0;
-          return (
-            <article key={e.id} className="panel ledger-item">
-              <div className={`ledger-icon ledger-icon--${credit ? "credit" : "debit"}`} aria-hidden>
-                {TYPE_ICON[e.type] ?? (credit ? "＋" : "−")}
-              </div>
-              <div className="ledger-body">
-                <div className="ledger-title">{TYPE_FA[e.type] ?? e.type}</div>
-                <div className="ledger-meta">
-                  <time className="ledger-time" dateTime={e.createdAt}>
-                    {new Date(e.createdAt).toLocaleString("fa")}
-                  </time>
-                  {e.note && <span className="ledger-note">{e.note}</span>}
-                  {isUnsettled(e) && <span className="ledger-badge">تسویه‌نشده</span>}
-                </div>
-              </div>
-              <div className="ledger-side">
-                <div className={`ledger-amount ledger-amount--${credit ? "credit" : "debit"}`}>
-                  {credit ? "+" : ""}
-                  {e.amount.toLocaleString("fa")}
-                </div>
-                <div className="ledger-balance-after">
-                  مانده: {e.balanceAfter.toLocaleString("fa")}
-                </div>
-              </div>
-            </article>
-          );
-        })}
+
+        {groups.map((group) => (
+          <section key={group.label} className="ledger-day-group">
+            <h3 className="ledger-day-label">{group.label}</h3>
+            {group.items.map((e) => {
+              const credit = e.amount >= 0;
+              return (
+                <article
+                  key={e.id}
+                  className={`ledger-item ledger-item--${credit ? "credit" : "debit"} ledger-item--${e.type}`}
+                >
+                  <div className={`ledger-icon ledger-icon--${credit ? "credit" : "debit"}`} aria-hidden>
+                    {TYPE_ICON[e.type] ?? (credit ? "＋" : "−")}
+                  </div>
+                  <div className="ledger-body">
+                    <div className="ledger-title-row">
+                      <span className="ledger-title">{TYPE_FA[e.type] ?? e.type}</span>
+                      <time className="ledger-time" dateTime={e.createdAt}>
+                        {formatTime(e.createdAt)}
+                      </time>
+                    </div>
+                    {(e.note || isUnsettled(e)) && (
+                      <div className="ledger-meta">
+                        {e.note && <span className="ledger-note">{e.note}</span>}
+                        {isUnsettled(e) && <span className="ledger-badge">تسویه‌نشده</span>}
+                      </div>
+                    )}
+                  </div>
+                  <div className="ledger-side">
+                    <div className={`ledger-amount ledger-amount--${credit ? "credit" : "debit"}`}>
+                      {credit ? "+" : ""}
+                      {e.amount.toLocaleString("fa")}
+                    </div>
+                    <div className="ledger-balance-after">
+                      مانده {e.balanceAfter.toLocaleString("fa")}
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </section>
+        ))}
       </div>
     </PageShell>
   );

@@ -19,6 +19,7 @@ export interface TableSocket {
   requestExtraTime: () => void;
   kick: (seatIndex: number, userId: string) => void;
   rebuy: () => void;
+  forfeitTournament: () => void;
   chat: (text: string) => void;
 }
 
@@ -58,8 +59,9 @@ export function useTableSocket(tableId: string): TableSocket {
   const requestExtraTime = useCallback(() => sockRef.current?.emit("extra_time", { tableId }), [tableId]);
   const kick = useCallback((seatIndex: number, userId: string) => sockRef.current?.emit("kick", { tableId, seatIndex, userId }), [tableId]);
   const rebuy = useCallback(() => sockRef.current?.emit("rebuy", { tableId }), [tableId]);
+  const forfeitTournament = useCallback(() => sockRef.current?.emit("forfeit_tournament", { tableId }), [tableId]);
   const chat = useCallback((text: string) => sockRef.current?.emit("chat", { tableId, text }), [tableId]);
   const clearError = useCallback(() => setError(null), []);
 
-  return { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, chat };
+  return { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat };
 }

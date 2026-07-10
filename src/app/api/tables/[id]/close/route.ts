@@ -7,6 +7,11 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
   return handler(async () => {
     await requireAdmin();
     const { id } = await params;
+    const table = await repo.getTable(id);
+    if (!table || table.status !== "open") return error("میز یافت نشد", 404);
+    if (table.tournament_id) {
+      return error("این میز متعلق به یک تورنومنت در حال اجراست و از تب «تورنومنت‌ها» بسته می‌شود", 409);
+    }
     // Cash players out + stop the live runtime before hiding the table.
     try {
       await gameManager.closeTable(id);

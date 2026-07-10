@@ -146,6 +146,14 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       }
     });
 
+    socket.on("forfeit_tournament", async ({ tableId }: { tableId: string }) => {
+      try {
+        await tournamentManager.forfeitByTable(tableId, data.userId);
+      } catch (err) {
+        fail(socket, err);
+      }
+    });
+
     // Top-up: applied immediately if self-top-up is enabled, else queued for admin.
     socket.on("topup", async ({ tableId, amount }: { tableId: string; amount: number }) => {
       try {
