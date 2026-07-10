@@ -8,11 +8,9 @@ services:
       POSTGRES_USER: poker
       POSTGRES_PASSWORD: poker
       POSTGRES_DB: poker
-    # Host port 5433 avoids clashing with a Postgres you may already run on
-    # 5432. The app talks to the DB over the internal network (db:5432), so
-    # this mapping is only for optional external inspection.
-    ports:
-      - "5433:5432"
+    # No host port is published: the app reaches Postgres over the internal
+    # Docker network (db:5432), so this never clashes with a Postgres you already
+    # run locally. To inspect the DB, use:  docker compose exec db psql -U poker poker
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -32,8 +30,9 @@ services:
       NODE_ENV: production
       HOST: 0.0.0.0
       PORT: 3000
+    # Host port is overridable if 3001 is taken: APP_PORT=3002 docker compose up
     ports:
-      - "3001:3000"
+      - "${APP_PORT:-3001}:3000"
     depends_on:
       db:
         condition: service_healthy
