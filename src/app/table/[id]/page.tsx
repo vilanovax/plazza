@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTableSocket } from "@/components/useTableSocket";
 import { useTableSounds } from "@/components/useTableSounds";
 import { DealerAvatar } from "@/components/DealerAvatar";
+import { ChipStack } from "@/components/ChipStack";
 import { PlayingCard } from "@/components/PlayingCard";
 import { api, fetchMe, type Me } from "@/lib/client/api";
 import { Input, Modal, PageShell } from "@/components/ui";
@@ -147,7 +148,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         <div className="table-center">
           <div className="table-pot">
             <span className="table-pot-label">پات</span>
-            <span className="table-pot-value">{(state?.pot ?? 0).toLocaleString("fa")}</span>
+            <ChipStack amount={state?.pot ?? 0} compact={compact} showAmount />
           </div>
           <div className="table-community">
             {[0, 1, 2, 3, 4].map((i) => {
@@ -188,6 +189,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
                   community={state?.community ?? []}
                   deadline={isTurn ? state?.actionDeadline : undefined}
                   showdown={state?.phase === "hand_complete"}
+                  compact={compact}
                   onSelect={() => seat!.userId && setStatsFor({ userId: seat!.userId, name: seat!.name ?? "بازیکن", seatIndex: i })}
                 />
               ) : (
@@ -238,6 +240,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       {state && <AllInFlash log={state.log ?? []} />}
       {state && (
         <ChatPanel
+          compact={compact}
           log={state.log ?? []}
           myId={me?.id ?? null}
           muteAll={muteAll}
@@ -298,8 +301,8 @@ function seatPosition(index: number, viewerSeat: number | null, n: number, compa
   return { x: 50 + rx * Math.cos(theta), y: 50 + ry * Math.sin(theta) };
 }
 
-const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, onSelect }: {
-  seat: SeatVM; isTurn: boolean; isButton: boolean; isViewer?: boolean; community: Card[]; deadline?: number; showdown?: boolean; onSelect?: () => void;
+const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, compact, onSelect }: {
+  seat: SeatVM; isTurn: boolean; isButton: boolean; isViewer?: boolean; community: Card[]; deadline?: number; showdown?: boolean; compact?: boolean; onSelect?: () => void;
 }) {
   const folded = seat.status === "folded";
   // Show the current best hand for any cards we can actually see (the viewer's
@@ -315,7 +318,9 @@ const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, comm
       className={`seat-view${folded ? " seat-view--folded" : ""}${onSelect ? " seat-view--clickable" : ""}${isViewer ? " seat-view--viewer" : ""}`}
     >
       {seat.betThisRound > 0 && (
-        <div className="seat-bet">شرط: {seat.betThisRound.toLocaleString("fa")}</div>
+        <div className="seat-bet">
+          <ChipStack amount={seat.betThisRound} compact={compact} maxChips={3} />
+        </div>
       )}
       {handName && <div className="seat-hand-badge">{handName}</div>}
       {showdown && seat.holeCards?.length && seat.tagline ? (
@@ -334,7 +339,7 @@ const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, comm
           className="seat-stack"
           style={seat.chipColor ? ({ "--seat-chip": seat.chipColor } as React.CSSProperties) : undefined}
         >
-          {seat.stack.toLocaleString("fa")}
+          <ChipStack amount={seat.stack} compact={compact} showAmount maxChips={2} />
         </div>
         {seat.status === "allin" && <div className="seat-tag-allin">آل‌این</div>}
         {seat.sitOut && <div className="seat-tag-sitout">سیت‌اوت</div>}
@@ -359,7 +364,8 @@ function Countdown({ deadline }: { deadline: number }) {
   return <div className="seat-countdown">{left ?? "•"}</div>;
 }
 
-function ChatPanel({ log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, onToggleMuteUser, onSend }: {
+function ChatPanel({ compact, log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, onToggleMuteUser, onSend }: {
+  compact?: boolean;
   log: LogEntry[];
   myId: string | null;
   muteAll: boolean;
@@ -371,19 +377,14 @@ function ChatPanel({ log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, on
 }) {
   const [text, setText] = useState("");
   const [showPresets, setShowPresets] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [open, setOpen] = useState(() => !compact);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 520px)");
-    const update = () => setIsMobile(mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
+    if (compact) setOpen(false);
+  }, [compact]);
 
-  const collapsed = isMobile && !mobileOpen;
+  const collapsed = !open;
 
   // Hide muted players' chat/all-in lines; table events always show.
   const visible = log.filter((e) => {
@@ -411,27 +412,29 @@ function ChatPanel({ log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, on
   }
 
   return (
-    <div className={`panel chat-panel${collapsed ? " chat-panel--collapsed" : ""}`}>
+    <div className={`panel chat-panel${collapsed ? " chat-panel--collapsed" : ""}${compact ? " chat-panel--compact" : ""}`}>
       <div
         className="chat-panel-head"
-        onClick={isMobile ? () => setMobileOpen((o) => !o) : undefined}
-        onKeyDown={isMobile ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setMobileOpen((o) => !o); } } : undefined}
-        role={isMobile ? "button" : undefined}
-        tabIndex={isMobile ? 0 : undefined}
-        aria-expanded={isMobile ? !collapsed : undefined}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen((o) => !o); } }}
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        aria-controls="chat-panel-body"
       >
         <span className="chat-panel-title chat-panel-toggle">
-          {collapsed ? "💬 گفتگو و رویدادها" : "گفتگو و رویدادها"}
+          <span className="chat-panel-chevron" aria-hidden>{collapsed ? "▲" : "▼"}</span>
+          گفتگو و رویدادها
         </span>
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onToggleMuteAll(); }}
           className="btn btn-ghost chat-panel-mute"
         >
-          {muteAll ? (isMobile ? "🔕" : "🔕 صدای همه بسته") : (isMobile ? "🔔" : "🔔 صدای چت باز")}
+          {muteAll ? (compact ? "🔕" : "🔕 صدای همه بسته") : (compact ? "🔔" : "🔔 صدای چت باز")}
         </button>
       </div>
-      <div className="chat-panel-body">
+      <div id="chat-panel-body" className="chat-panel-body">
       <div ref={scrollRef} className="chat-scroll">
         {recent.map((e) => {
           const mine = e.author?.userId && e.author.userId === myId;

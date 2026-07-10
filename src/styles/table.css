@@ -167,12 +167,25 @@
 .table-pot {
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
+  gap: 0.55rem;
   padding: 0.35rem 0.85rem;
   border-radius: 999px;
   background: linear-gradient(180deg, rgba(30, 22, 8, 0.92), rgba(12, 10, 6, 0.95));
   border: 1px solid rgba(217, 180, 91, 0.45);
   animation: pot-pulse 3s ease-in-out infinite;
+}
+
+.table-pot .chip-stack {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.table-pot .chip-stack-amount {
+  font-size: var(--text-base);
+  font-weight: 900;
+  color: var(--gold);
+  text-shadow: 0 0 12px rgba(217, 180, 91, 0.35);
 }
 
 .table-pot-label {
@@ -182,19 +195,117 @@
   letter-spacing: 0.04em;
 }
 
-.table-pot-value {
-  color: var(--gold);
-  font-weight: 900;
-  font-size: var(--text-base);
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 12px rgba(217, 180, 91, 0.35);
+/* ── Poker chips ── */
+.poker-chip {
+  --chip-size: 1.65rem;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--chip-size);
+  height: var(--chip-size);
+  border-radius: 50%;
+  border: 2px dashed rgba(255, 255, 255, 0.55);
+  box-shadow:
+    inset 0 2px 4px rgba(255, 255, 255, 0.22),
+    inset 0 -3px 6px rgba(0, 0, 0, 0.45),
+    0 2px 5px rgba(0, 0, 0, 0.5);
+  flex-shrink: 0;
 }
 
-.table-pot-value::before {
-  content: "🪙";
-  margin-inline-end: 0.25rem;
-  font-size: 0.85em;
-  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+.poker-chip--sm {
+  --chip-size: 1.15rem;
+  border-width: 1.5px;
+}
+
+.poker-chip--lg {
+  --chip-size: 2rem;
+}
+
+.poker-chip--black {
+  background: radial-gradient(circle at 32% 28%, #4a4a4a, #0d0d0d 68%);
+  border-color: rgba(217, 180, 91, 0.75);
+}
+
+.poker-chip--green {
+  background: radial-gradient(circle at 32% 28%, #3ecf7a, #0f5c32 68%);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.poker-chip--yellow {
+  background: radial-gradient(circle at 32% 28%, #ffe566, #c9920f 68%);
+  border-color: rgba(120, 80, 10, 0.65);
+}
+
+.poker-chip--blue {
+  background: radial-gradient(circle at 32% 28%, #5b9fff, #1a4f9c 68%);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.poker-chip-face {
+  font-size: calc(var(--chip-size) * 0.34);
+  font-weight: 900;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.95);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
+}
+
+.poker-chip--yellow .poker-chip-face,
+.poker-chip--black .poker-chip-face {
+  color: #fff;
+}
+
+.poker-chip--yellow .poker-chip-face {
+  color: #3d2800;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.chip-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.chip-stack-pile {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-width: calc(var(--chip-size, 1.65rem) + 0.5rem);
+  min-height: calc(var(--chip-size, 1.65rem) + 0.35rem);
+  padding-top: 0.15rem;
+}
+
+.chip-stack-pile .poker-chip {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(calc(-50% + (var(--chip-i, 0) - 1) * 3px)) translateY(calc(var(--chip-i, 0) * -3px));
+  z-index: calc(10 + var(--chip-i, 0));
+}
+
+.chip-stack-more {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  font-size: 9px;
+  font-weight: 800;
+  color: var(--gold);
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(217, 180, 91, 0.45);
+  border-radius: 999px;
+  padding: 0 4px;
+  z-index: 20;
+}
+
+.chip-stack-amount {
+  font-size: var(--text-xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--gold);
+  line-height: 1.1;
+  white-space: nowrap;
 }
 
 .table-community {
@@ -391,12 +502,34 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chat-panel--collapsed .chat-panel-head {
+  margin-bottom: 0;
+}
+
+.chat-panel--collapsed .chat-panel-body {
+  display: none;
 }
 
 .chat-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: var(--text-xs);
   color: var(--color-gold-300);
   font-weight: 700;
+}
+
+.chat-panel-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  font-size: 0.65rem;
+  color: var(--muted);
 }
 
 .chat-panel-mute {
@@ -1213,13 +1346,13 @@
     font-size: 0.58rem;
   }
 
-  .table-pot-value {
+  .table-pot .chip-stack-amount {
     font-size: 0.75rem;
   }
 
-  .table-pot-value::before {
-    margin-inline-end: 0.15rem;
-    font-size: 0.75em;
+  .table-pot .poker-chip--sm,
+  .table-pot .poker-chip {
+    --chip-size: 1rem;
   }
 
   .table-community {
@@ -1309,14 +1442,25 @@
     font-size: 8px;
   }
 
-  .seat-stack {
+  .seat-stack .chip-stack-amount {
     font-size: 0.62rem;
   }
 
+  .seat-stack .poker-chip--sm {
+    --chip-size: 0.95rem;
+  }
+
   .seat-bet {
-    font-size: 0.58rem;
-    padding: 0 5px;
+    padding: 1px 3px;
     margin-bottom: 1px;
+  }
+
+  .seat-bet .chip-stack-amount {
+    font-size: 8px;
+  }
+
+  .seat-bet .poker-chip--sm {
+    --chip-size: 0.9rem;
   }
 
   .seat-hand-badge {
@@ -1459,8 +1603,8 @@
     border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   }
 
-  .chat-panel--collapsed .chat-panel-body {
-    display: none;
+  .chat-panel--collapsed {
+    box-shadow: none;
   }
 
   .chat-panel-head {
@@ -1559,16 +1703,34 @@
 }
 
 .seat-bet {
-  display: inline-block;
-  color: var(--gold);
-  font-size: var(--text-xs);
-  font-weight: 700;
+  display: flex;
+  justify-content: center;
   margin-bottom: 2px;
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: radial-gradient(circle at 30% 25%, rgba(217, 180, 91, 0.35), rgba(80, 55, 20, 0.55));
-  border: 1px solid rgba(217, 180, 91, 0.4);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(217, 180, 91, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.seat-bet .chip-stack-amount {
+  font-size: 10px;
+}
+
+.seat-stack {
+  display: flex;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.seat-stack .chip-stack {
+  flex-direction: row;
+  gap: 4px;
+}
+
+.seat-stack .chip-stack-amount {
+  color: var(--seat-chip, var(--accent));
+  font-size: 11px;
 }
 
 .seat-hand-badge {
@@ -1620,13 +1782,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.seat-stack {
-  font-size: var(--text-xs);
-  color: var(--seat-chip, var(--accent));
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
 }
 
 .seat-tag-allin {
