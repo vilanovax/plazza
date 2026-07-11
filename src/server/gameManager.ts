@@ -118,13 +118,18 @@ export class GameManager {
           }
         }
       }
+      // Rehydrate the persisted event feed (cash tables only) so it survives a
+      // restart; resume the sequence counter from the highest stored id.
+      const isTournament = row.tournament_id != null;
+      const log = isTournament ? [] : await repo.recentTableEvents(tableId, LOG_CAP);
+      const logSeq = log.reduce((max, e) => Math.max(max, e.id), 0);
       const rt: TableRuntime = {
         game,
         tableId,
-        log: [],
-        logSeq: 0,
+        log,
+        logSeq,
         sitOutTimers: new Map(),
-        isTournament: row.tournament_id != null,
+        isTournament,
         profiles: new Map(),
       };
       for (const uid of activeSeatUserIds) {
@@ -731,8 +736,17 @@ export class GameManager {
   // Broadcasting
   // --------------------------------------------------------------------------
   private pushLog(rt: TableRuntime, text: string, kind: LogEntry["kind"] = "event", author?: LogEntry["author"]): void {
-    rt.log.push({ id: ++rt.logSeq, ts: Date.now(), text, kind, author });
+    const entry: LogEntry = { id: ++rt.logSeq, ts: Date.now(), text, kind, author };
+    rt.log.push(entry);
     if (rt.log.length > LOG_CAP) rt.log.splice(0, rt.log.length - LOG_CAP);
+    // Persist (best-effort, fire-and-forget) so the feed survives a restart.
+    // Tournament tables are ephemeral runtime state, so skip persisting theirs.
+    if (!rt.isTournament) {
+      void repo.insertTableEvent(rt.tableId, {
+        seq: entry.id, kind: entry.kind ?? "event", text,
+        authorUserId: author?.userId, authorName: author?.name, ts: entry.ts,
+      });
+    }
   }
 
   /** A player chat message into the table feed (validated + rate-limited by the socket layer). */

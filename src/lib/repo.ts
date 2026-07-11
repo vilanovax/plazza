@@ -16,7 +16,7 @@ import type {
   UserProfileRow,
 } from "./models";
 import type { ProfileFields } from "./profile/presets";
-import type { TableConfig } from "./poker/types";
+import type { TableConfig, LogEntry } from "./poker/types";
 import type { BlindLevel, TournamentConfig } from "./tournament/types";
 import { playableLevel } from "./tournament/types";
 
@@ -441,6 +441,42 @@ export interface AuditRow {
   metadata: Record<string, unknown> | null;
   ip: string | null;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Table event feed (persisted so it survives a restart; see migration 0018)
+// ---------------------------------------------------------------------------
+export async function insertTableEvent(
+  tableId: string,
+  e: { seq: number; kind: string; text: string; authorUserId?: string | null; authorName?: string | null; ts: number }
+): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO table_events (table_id, seq, kind, text, author_user_id, author_name, ts)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tableId, e.seq, e.kind, e.text, e.authorUserId ?? null, e.authorName ?? null, e.ts]
+    );
+  } catch (err) {
+    console.error("insertTableEvent failed", err);
+  }
+}
+
+/** The most recent feed entries for a table, oldest-first (for rehydration). */
+export async function recentTableEvents(tableId: string, limit = 60): Promise<LogEntry[]> {
+  const rows = await query<{
+    seq: number; kind: string; text: string; author_user_id: string | null; author_name: string | null; ts: string;
+  }>(
+    `SELECT seq, kind, text, author_user_id, author_name, ts
+       FROM table_events WHERE table_id = $1 ORDER BY id DESC LIMIT $2`,
+    [tableId, Math.min(200, Math.max(1, limit))]
+  );
+  return rows.reverse().map((r) => ({
+    id: Number(r.seq),
+    ts: Number(r.ts),
+    text: r.text,
+    kind: r.kind as LogEntry["kind"],
+    author: r.author_user_id ? { userId: r.author_user_id, name: r.author_name ?? "بازیکن" } : undefined,
+  }));
 }
 
 export async function closeTable(id: string): Promise<void> {
