@@ -4,12 +4,20 @@ import { io, type Socket } from "socket.io-client";
 import type { PublicGameState, PlayerAction } from "@/lib/poker/types";
 import type { TournamentTableBanner } from "@/lib/tournament/tableBanner";
 
+export interface TopupResult {
+  status: "approved" | "pending" | "duplicate";
+  amount: number;
+  requestId?: string;
+}
+
 export interface TableSocket {
   state: PublicGameState | null;
   tourney: TournamentTableBanner | null;
   connected: boolean;
   error: string | null;
   clearError: () => void;
+  topupResult: TopupResult | null;
+  clearTopupResult: () => void;
   sit: (seatIndex: number, buyIn: number) => void;
   leaveSeat: () => void;
   act: (action: PlayerAction) => void;
@@ -28,6 +36,7 @@ export function useTableSocket(tableId: string, invite?: string): TableSocket {
   const [tourney, setTourney] = useState<TournamentTableBanner | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [topupResult, setTopupResult] = useState<TopupResult | null>(null);
   const sockRef = useRef<Socket | null>(null);
 
   useEffect(() => {
@@ -43,6 +52,7 @@ export function useTableSocket(tableId: string, invite?: string): TableSocket {
     socket.on("state", (s: PublicGameState) => setState(s));
     socket.on("tournament_update", (t: TournamentTableBanner | null) => setTourney(t));
     socket.on("action_error", ({ message }: { message: string }) => setError(message));
+    socket.on("topup_result", (r: TopupResult) => setTopupResult(r));
 
     return () => {
       socket.disconnect();
@@ -62,6 +72,7 @@ export function useTableSocket(tableId: string, invite?: string): TableSocket {
   const forfeitTournament = useCallback(() => sockRef.current?.emit("forfeit_tournament", { tableId }), [tableId]);
   const chat = useCallback((text: string) => sockRef.current?.emit("chat", { tableId, text }), [tableId]);
   const clearError = useCallback(() => setError(null), []);
+  const clearTopupResult = useCallback(() => setTopupResult(null), []);
 
-  return { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat };
+  return { state, tourney, connected, error, clearError, topupResult, clearTopupResult, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat };
 }

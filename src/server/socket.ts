@@ -185,7 +185,7 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         if (typeof requestId === "string" && requestId) {
           const key = `topup:${data.userId}:${requestId}`;
           if (!claimOnce(key, 60_000)) {
-            socket.emit("topup_result", { status: "duplicate", amount: amt });
+            socket.emit("topup_result", { status: "duplicate", amount: amt, requestId });
             return;
           }
           claimKey = key;
@@ -206,10 +206,10 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         if (!seat) throw new InvalidActionError("شما سر این میز نیستید");
         if (settings.allow_self_topup) {
           await gameManager.topUp(tableId, data.userId, amt);
-          socket.emit("topup_result", { status: "approved", amount: amt });
+          socket.emit("topup_result", { status: "approved", amount: amt, requestId });
         } else {
           await repo.createTopup(data.userId, tableId, seat.seatIndex, amt);
-          socket.emit("topup_result", { status: "pending", amount: amt });
+          socket.emit("topup_result", { status: "pending", amount: amt, requestId });
         }
       } catch (err) {
         // The top-up didn't apply — free the idempotency key so the user can

@@ -2,7 +2,7 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTableSocket } from "@/components/useTableSocket";
+import { useTableSocket, type TopupResult } from "@/components/useTableSocket";
 import { useTableSounds } from "@/components/useTableSounds";
 import { DealerAvatar } from "@/components/DealerAvatar";
 import { ChipStack } from "@/components/ChipStack";
@@ -44,7 +44,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       ? new URLSearchParams(window.location.search).get("invite") ?? undefined
       : undefined
   );
-  const { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat } = useTableSocket(id, invite);
+  const { state, tourney, connected, error, clearError, topupResult, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat } = useTableSocket(id, invite);
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [forfeitOpen, setForfeitOpen] = useState(false);
@@ -240,6 +240,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           mySeat={mySeat}
           act={act}
           topup={topup}
+          topupResult={topupResult}
           leaveSeat={leaveSeat}
           preAction={preAction?.type ?? null}
           onPreAction={selectPre}
@@ -663,10 +664,11 @@ function ShowCardsPrompt({ until, onShow }: { until: number; onShow: () => void 
   );
 }
 
-function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, onPreAction, sitOut, requestExtraTime, isTournament, onForfeit }: {
+function ActionBar({ compact, state, mySeat, act, topup, topupResult, leaveSeat, preAction, onPreAction, sitOut, requestExtraTime, isTournament, onForfeit }: {
   compact?: boolean;
   state: PublicGameState; mySeat: SeatVM;
   act: (a: PlayerAction) => void; topup: (n: number, requestId: string) => void; leaveSeat: () => void;
+  topupResult?: TopupResult | null;
   preAction: PreAction | null; onPreAction: (t: PreAction) => void;
   sitOut: (out: boolean) => void; requestExtraTime: () => void;
   isTournament?: boolean; onForfeit?: () => void;
@@ -689,11 +691,42 @@ function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, o
 
   const canRaise = maxTo > state.currentBet;
   const [showTopup, setShowTopup] = useState(false);
-  // Stable id for the current top-up intent: minted when the row opens and
-  // reused on every submit click, so a double-click / retry dedups server-side
-  // (true idempotency) while a fresh row is a genuinely new request.
-  const topupReqId = useRef("");
   const [topupAmt, setTopupAmt] = useState(state.config.topUpMin || state.config.bigBlind * 20);
+  const [topupMsg, setTopupMsg] = useState<string | null>(null);
+  // Stable id for the current top-up intent, kept in STATE (not a ref, so the
+  // render-time ack handling below stays lint-clean). Minted when the panel
+  // opens and PERSISTED across re-opens — so a retry after an ambiguous network
+  // failure reuses the same id and the server dedups it — until the server
+  // acknowledges it, at which point it's cleared so the next top-up is fresh.
+  const [topupReqId, setTopupReqId] = useState("");
+  const [seenAck, setSeenAck] = useState<string | null>(null);
+  const openTopup = () => {
+    const opening = !showTopup;
+    setShowTopup(opening);
+    if (opening) {
+      setTopupMsg(null);
+      setTopupReqId((cur) => cur || crypto.randomUUID());
+    }
+  };
+  const submitTopup = () => {
+    const id = topupReqId || crypto.randomUUID();
+    if (id !== topupReqId) setTopupReqId(id);
+    topup(topupAmt, id);
+    setShowTopup(false);
+  };
+  // Consume the server ack (render-time adjust-state-on-prop-change pattern):
+  // surface the outcome and free the intent id so the NEXT top-up is a fresh
+  // request, while a retry BEFORE the ack reuses the same id and stays deduped.
+  const ackId = topupResult?.requestId;
+  if (topupResult && ackId && ackId === topupReqId && ackId !== seenAck) {
+    setSeenAck(ackId);
+    setTopupReqId("");
+    setTopupMsg(
+      topupResult.status === "pending" ? "درخواست تاپ‌آپ برای تأیید مدیر ثبت شد" :
+      topupResult.status === "duplicate" ? "این درخواست قبلاً ثبت شده بود" :
+      "تاپ‌آپ اعمال شد"
+    );
+  }
 
   return (
     <div className={`panel action-bar${myTurn ? " action-bar--turn" : ""}`}>
@@ -754,7 +787,7 @@ function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, o
                 </button>
               )}
               {!isTournament && state.config.allowTopUp && (
-                <button className="btn btn-gold action-btn-sm" onClick={() => setShowTopup((s) => { const next = !s; if (next) topupReqId.current = crypto.randomUUID(); return next; })}>+ تاپ‌آپ</button>
+                <button className="btn btn-gold action-btn-sm" onClick={openTopup}>+ تاپ‌آپ</button>
               )}
               {isTournament ? (
                 <button className="btn btn-danger action-btn-sm" onClick={onForfeit}>انصراف از تورنومنت</button>
@@ -769,9 +802,10 @@ function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, o
       {showTopup && !isTournament && (
         <div className="action-topup-row">
           <Input type="number" className="action-topup-input" value={topupAmt} onChange={(e) => setTopupAmt(Number(e.target.value))} />
-          <button className="btn btn-primary" onClick={() => { topup(topupAmt, topupReqId.current || crypto.randomUUID()); setShowTopup(false); }}>درخواست</button>
+          <button className="btn btn-primary" onClick={submitTopup}>درخواست</button>
         </div>
       )}
+      {topupMsg && !showTopup && <div className="action-topup-msg" role="status">{topupMsg}</div>}
     </div>
   );
 }

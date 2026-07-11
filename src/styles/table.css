@@ -807,6 +807,16 @@
   flex: 1;
 }
 
+.action-topup-msg {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(217, 180, 91, 0.1);
+  color: #f0d48a;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
 .stat-row {
   display: flex;
   justify-content: space-between;
