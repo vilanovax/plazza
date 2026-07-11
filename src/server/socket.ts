@@ -150,6 +150,15 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       }
     });
 
+    // Toggle "ready" — gates the table's first hand only.
+    socket.on("ready", async ({ tableId, ready }: { tableId: string; ready: boolean }) => {
+      try {
+        await gameManager.setReady(tableId, data.userId, ready === true);
+      } catch (err) {
+        fail(socket, err);
+      }
+    });
+
     // Admin-only: remove a player from the table (verified by expected userId).
     socket.on("kick", async ({ tableId, seatIndex, userId }: { tableId: string; seatIndex: number; userId: string }) => {
       try {

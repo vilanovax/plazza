@@ -2004,3 +2004,39 @@
   font-size: 10px;
   color: var(--muted);
 }
+
+.seat-tag-ready {
+  font-size: 10px;
+  color: #7fd08a;
+  font-weight: 600;
+}
+
+.ready-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+}
+
+.ready-prompt-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ready-prompt-title {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.ready-prompt-count {
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.ready-prompt-btn {
+  flex-shrink: 0;
+}

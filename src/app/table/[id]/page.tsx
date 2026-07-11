@@ -44,7 +44,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       ? new URLSearchParams(window.location.search).get("invite") ?? undefined
       : undefined
   );
-  const { state, tourney, connected, error, clearError, topupResult, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, ban, rebuy, forfeitTournament, chat } = useTableSocket(id, invite);
+  const { state, tourney, connected, error, clearError, topupResult, sit, leaveSeat, act, topup, showCards, sitOut, setReady, requestExtraTime, kick, ban, rebuy, forfeitTournament, chat } = useTableSocket(id, invite);
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [forfeitOpen, setForfeitOpen] = useState(false);
@@ -232,6 +232,16 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         </div>
       )}
 
+      {/* First-hand ready gate: shown to a seated player before the table's
+          opening hand (handNo 0), on cash tables only. */}
+      {state && mySeat && !tourney && state.handNo === 0 && state.phase === "waiting" && (
+        <ReadyPrompt
+          seats={state.seats}
+          iAmReady={mySeat.ready === true}
+          onToggle={() => setReady(!mySeat.ready)}
+        />
+      )}
+
       {/* Controls */}
       {mySeat ? (
         <ActionBar
@@ -390,7 +400,7 @@ function seatViewEqual(a: SeatViewProps, b: SeatViewProps): boolean {
   if (
     s1.status !== s2.status || s1.betThisRound !== s2.betThisRound || s1.stack !== s2.stack ||
     s1.name !== s2.name || s1.title !== s2.title || s1.tagline !== s2.tagline ||
-    s1.isConnected !== s2.isConnected || s1.sitOut !== s2.sitOut || s1.userId !== s2.userId ||
+    s1.isConnected !== s2.isConnected || s1.sitOut !== s2.sitOut || s1.ready !== s2.ready || s1.userId !== s2.userId ||
     s1.seatIndex !== s2.seatIndex || s1.avatar !== s2.avatar || s1.cardBack !== s2.cardBack ||
     s1.chipColor !== s2.chipColor || s1.hasCards !== s2.hasCards
   ) return false;
@@ -459,6 +469,7 @@ const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, comm
           {seat.title && <div className="seat-title">«{seat.title}»</div>}
           {seat.status === "allin" && <div className="seat-tag-allin">آل‌این</div>}
           {seat.sitOut && <div className="seat-tag-sitout">سیت‌اوت</div>}
+          {seat.ready && <div className="seat-tag-ready">آماده ✅</div>}
           {isTurn && deadline && <Countdown deadline={deadline} />}
         </div>
         <PlayerAvatar
@@ -642,6 +653,24 @@ function AllInFlash({ log }: { log: LogEntry[] }) {
       <div className="allin-flash-text">
         ⚡ {lastAllIn.author?.name ?? ""} — آل‌این! 🔥
       </div>
+    </div>
+  );
+}
+
+function ReadyPrompt({ seats, iAmReady, onToggle }: {
+  seats: SeatVM[]; iAmReady: boolean; onToggle: () => void;
+}) {
+  const seated = seats.filter((s) => s.userId && s.status !== "empty").length;
+  const readyCount = seats.filter((s) => s.ready).length;
+  return (
+    <div className="panel ready-prompt">
+      <div className="ready-prompt-text">
+        <span className="ready-prompt-title">شروع میز</span>
+        <span className="ready-prompt-count">{readyCount.toLocaleString("fa")} از {seated.toLocaleString("fa")} آماده — با آماده‌شدن حداقل ۲ نفر، دست اول شروع می‌شود</span>
+      </div>
+      <button className={`btn ${iAmReady ? "btn-ghost" : "btn-gold"} ready-prompt-btn`} onClick={onToggle}>
+        {iAmReady ? "لغو آمادگی" : "آماده‌ام ✅"}
+      </button>
     </div>
   );
 }

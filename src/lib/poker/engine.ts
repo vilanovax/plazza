@@ -191,9 +191,20 @@ export class HoldemGame {
   }
 
   canStartHand(): boolean {
-    return this.phase === "waiting" || this.phase === "hand_complete"
-      ? this.dealableSeats().length >= 2
-      : false;
+    if (this.phase !== "waiting" && this.phase !== "hand_complete") return false;
+    const dealable = this.dealableSeats();
+    if (dealable.length < 2) return false;
+    // The table's very FIRST hand waits until at least two seated players have
+    // tapped "ready"; after play has begun (handNo > 0) hands auto-start.
+    if (this.handNo === 0) return dealable.filter((s) => s.ready).length >= 2;
+    return true;
+  }
+
+  /** Toggle a player's readiness (only meaningful before the first hand). */
+  setReady(userId: string, ready: boolean): void {
+    const seat = this.seats.find((s) => s.userId === userId);
+    if (!seat || seat.status === "empty") throw new InvalidActionError("شما سر این میز نیستید");
+    seat.ready = ready;
   }
 
   startHand(): void {
@@ -219,6 +230,7 @@ export class HoldemGame {
       seat.extraTimeUsed = 0;
       seat.extraTimeThisTurn = false;
       seat.holeCards = undefined;
+      seat.ready = false; // readiness only gates the very first hand
       // Record the pre-blind stack so a same-hand bust can be ranked correctly.
       seat.stackAtHandStart = seat.stack;
       if (seat.userId && seat.stack > 0 && !seat.sitOut) seat.status = "active";
@@ -752,6 +764,7 @@ export class HoldemGame {
           isConnected: s.isConnected,
           sitOut: s.sitOut,
           sitOutUntil: s.sitOutUntil,
+          ready: s.ready,
           extraTimeUsed: s.extraTimeUsed,
           hasCards: (s.holeCards?.length ?? 0) > 0,
           holeCards,

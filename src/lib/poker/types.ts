@@ -89,6 +89,8 @@ export interface SeatState {
   pendingLeave?: boolean;
   /** Player is sitting out (keeps the seat but isn't dealt in). */
   sitOut?: boolean;
+  /** Player has tapped "ready" — gates the table's very first hand only. */
+  ready?: boolean;
   /** Deadline by which a sitting-out player must return or be removed. */
   sitOutUntil?: number;
   /** Extra-time requests already used in the current hand. */

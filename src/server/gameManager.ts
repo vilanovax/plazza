@@ -432,6 +432,18 @@ export class GameManager {
     this.broadcast(tableId);
   }
 
+  /** Toggle a player's "ready" flag; gates only the table's first hand. */
+  async setReady(tableId: string, userId: string, ready: boolean): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) throw new InvalidActionError("میز فعال نیست");
+    if (rt.isTournament) return; // tournaments start via their own flow
+    rt.game.setReady(userId, ready); // throws if the user isn't seated
+    const seat = rt.game.seats.find((s) => s.userId === userId);
+    if (seat) this.pushLog(rt, `${seat.name ?? "بازیکن"} ${ready ? "آماده شد ✅" : "آمادگی را لغو کرد"}`);
+    this.maybeStartHand(rt);
+    this.broadcast(tableId);
+  }
+
   private clearSitOutTimer(rt: TableRuntime, userId: string): void {
     const t = rt.sitOutTimers.get(userId);
     if (t) {

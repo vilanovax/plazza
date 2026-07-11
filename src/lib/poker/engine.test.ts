@@ -45,6 +45,30 @@ test("blinds are posted and first to act is left of BB", () => {
   assert.equal(g.currentBet, 10);
 });
 
+test("the first hand waits for two ready players, then auto-starts thereafter", () => {
+  const g = new HoldemGame("ready1", cfg());
+  g.sit(0, "u0", "A", 1000);
+  g.sit(1, "u1", "B", 1000);
+  // Two seated players, but nobody is ready yet → the first hand can't start.
+  assert.equal(g.canStartHand(), false);
+  g.setReady("u0", true);
+  assert.equal(g.canStartHand(), false); // only one ready
+  g.setReady("u1", true);
+  assert.equal(g.canStartHand(), true); // two ready → go
+
+  g.startHand();
+  assert.equal(g.handNo, 1);
+  // Ready flags are cleared once play begins.
+  assert.equal(g.seats[0].ready, false);
+  // Fold out so the hand completes, then a third player joins.
+  g.act("u0", { type: "fold" });
+  assert.equal(g.phase, "hand_complete");
+  g.sit(2, "u2", "C", 1000);
+  // handNo > 0 now, so the ready gate no longer applies — it can start again
+  // with nobody explicitly "ready".
+  assert.equal(g.canStartHand(), true);
+});
+
 test("everyone folds to the big blind — BB wins the pot, chips conserved", () => {
   const g = new HoldemGame("t2", cfg());
   g.sit(0, "u0", "A", 1000);
