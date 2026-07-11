@@ -24,8 +24,8 @@ export function splitChipsProportionally(
     return { id: r.id, floored, fraction: raw - floored };
   });
 
-  let distributed = shares.reduce((sum, s) => sum + s.floored, 0);
-  let leftover = amount - distributed;
+  const distributed = shares.reduce((sum, s) => sum + s.floored, 0);
+  const leftover = amount - distributed;
   shares.sort((a, b) => b.fraction - a.fraction);
 
   for (let i = 0; i < shares.length; i++) {

@@ -244,16 +244,21 @@ function ChipDepositsSection({ isAdmin, onBalanceChange }: { isAdmin: boolean; o
   const [depositOpen, setDepositOpen] = useState(false);
   const [depositUserId, setDepositUserId] = useState("");
 
-  const load = useCallback(async () => {
-    setErr("");
-    try {
-      const data = await api<{ summary: ChipPurchaseSummary[]; recent: ChipDepositEntry[] }>("/api/chip-deposits");
-      setSummary(data.summary);
-      setRecent(data.recent);
-    } catch (e) {
-      setErr((e as Error).message);
-    }
-  }, []);
+  // Promise-chain (not async/await) so the setState calls live in deferred
+  // callbacks — calling this from the mount effect stays clear of the
+  // set-state-in-effect rule. Error clears on success rather than up front, so a
+  // stale error simply persists until the refetch resolves.
+  const load = useCallback(
+    () =>
+      api<{ summary: ChipPurchaseSummary[]; recent: ChipDepositEntry[] }>("/api/chip-deposits")
+        .then((data) => {
+          setSummary(data.summary);
+          setRecent(data.recent);
+          setErr("");
+        })
+        .catch((e) => setErr((e as Error).message)),
+    []
+  );
 
   useEffect(() => { void load(); }, [load]);
 
