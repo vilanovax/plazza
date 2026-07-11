@@ -24,6 +24,22 @@ test("canonicalize is order-independent and stable", () => {
   assert.equal(canonicalize(null), "null");
 });
 
+test("canonicalize matches JSON.stringify across a persistence round-trip", () => {
+  // An undefined object property must be dropped (as JSONB storage does), not
+  // hashed as null — otherwise the recomputed hash wouldn't match after reload.
+  const payload = { a: 1, b: undefined, c: [1, undefined, 3] };
+  const roundTripped = JSON.parse(JSON.stringify(payload));
+  assert.equal(canonicalize(payload), canonicalize(roundTripped));
+  assert.equal(canonicalize({ a: 1, b: undefined }), canonicalize({ a: 1 }));
+});
+
+test("undefined payload properties survive a build → persist → verify cycle", () => {
+  const built = buildEvent(null, input({ type: "PLAYER_BET", payload: { amount: 30, note: undefined } }), "id-1");
+  // Simulate what the DB round-trips: JSON.stringify on write, jsonb parse on read.
+  const persisted: GameEvent = { ...built, payload: JSON.parse(JSON.stringify(built.payload)) };
+  assert.ok(verifyChain([persisted]).ok);
+});
+
 test("first event: sequence 1, genesis prev-hash, 64-hex hash", () => {
   const e = buildEvent(null, input({ type: "TABLE_CREATED" }), "id-1");
   assert.equal(e.sequence, 1);

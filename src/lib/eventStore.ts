@@ -115,10 +115,14 @@ export interface Snapshot {
 /** Stable JSON with recursively sorted object keys, so equal content always
  *  hashes to the same string regardless of key insertion order. */
 export function canonicalize(v: unknown): string {
+  // Mirror JSON.stringify exactly, so the hash matches the persisted JSONB after
+  // a round-trip: `undefined` becomes null in array position and object
+  // properties whose value is `undefined` are dropped entirely.
+  if (v === undefined) return "null";
   if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
   if (Array.isArray(v)) return "[" + v.map(canonicalize).join(",") + "]";
   const obj = v as Record<string, unknown>;
-  const keys = Object.keys(obj).sort();
+  const keys = Object.keys(obj).filter((k) => obj[k] !== undefined).sort();
   return "{" + keys.map((k) => JSON.stringify(k) + ":" + canonicalize(obj[k])).join(",") + "}";
 }
 
@@ -320,14 +324,41 @@ export async function saveSnapshot(
   );
 }
 
+/** Hash of the persisted event at a given sequence, or null if none exists. */
+async function eventHashAt(tableId: string, sequence: number): Promise<string | null> {
+  const rows = await query<{ hash: string }>(
+    "SELECT hash FROM game_events WHERE table_id = $1 AND sequence = $2",
+    [tableId, sequence],
+  );
+  return rows[0]?.hash ?? null;
+}
+
 /**
- * Load everything needed to rebuild a table after a crash: the latest snapshot
- * (if any) and the events recorded since it. Verifies the hash chain of those
- * events against the snapshot anchor and THROWS if it is broken — a corrupt or
- * tampered stream must never silently produce a wrong state.
+ * Load everything needed to rebuild a table after a crash: a trusted snapshot
+ * (if any) and the events recorded since it.
+ *
+ * The snapshot is only used as the recovery anchor when it provably matches the
+ * authoritative log — its (sequence, hash) must equal the hash of the real
+ * `game_events` row at that sequence. A stale/malformed snapshot (no matching
+ * event, or a mismatching hash) is discarded and recovery falls back to a full
+ * replay from genesis; since events are append-only and chain-verified, this can
+ * never silently discard prior events or adopt a wrong state.
+ *
+ * THROWS if the event chain itself is broken — a corrupt or tampered stream must
+ * never silently produce a wrong state.
  */
 export async function loadForRecovery(tableId: string): Promise<{ snapshot: Snapshot | null; events: GameEvent[] }> {
-  const snapshot = await latestSnapshot(tableId);
+  let snapshot = await latestSnapshot(tableId);
+  if (snapshot) {
+    const anchorHash = await eventHashAt(tableId, snapshot.sequence);
+    if (anchorHash !== snapshot.hash) {
+      // Snapshot doesn't correspond to the authoritative log — do not trust it.
+      console.warn(
+        `game_snapshots anchor mismatch for table ${tableId} at seq ${snapshot.sequence}; replaying from genesis`,
+      );
+      snapshot = null;
+    }
+  }
   const events = await loadEventsSince(tableId, snapshot?.sequence ?? 0);
   const chain = verifyChain(events, snapshot?.hash ?? GENESIS_HASH, (snapshot?.sequence ?? 0) + 1);
   if (!chain.ok) {
