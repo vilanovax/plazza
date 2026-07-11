@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { handler, error, json, requireAdmin } from "@/lib/api";
+import { clientIp } from "@/lib/rateLimit";
 import * as repo from "@/lib/repo";
 import { gameManager } from "@/server/gameManager";
 
@@ -27,6 +29,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     } else {
       await repo.decideTopup(id, "rejected", admin.sub);
     }
+    await repo.writeAudit({
+      correlationId: randomUUID(), actorId: admin.sub,
+      action: status === "approved" ? "admin.topup_approve" : "admin.topup_reject",
+      targetType: "topup", targetId: id,
+      metadata: { userId: request.user_id, tableId: request.table_id, amount: Number(request.amount) },
+      ip: clientIp(req),
+    });
     return json({ ok: true });
   });
 }

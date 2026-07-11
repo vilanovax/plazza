@@ -89,6 +89,8 @@ export interface SeatState {
   pendingLeave?: boolean;
   /** Player is sitting out (keeps the seat but isn't dealt in). */
   sitOut?: boolean;
+  /** Player has tapped "ready" — gates the table's very first hand only. */
+  ready?: boolean;
   /** Deadline by which a sitting-out player must return or be removed. */
   sitOutUntil?: number;
   /** Extra-time requests already used in the current hand. */
@@ -158,4 +160,7 @@ export interface PublicGameState extends Omit<GameState, "seats"> {
   viewerSeat: number | null;
   /** Recent table events (attached by the game manager on broadcast). */
   log?: LogEntry[];
+  /** Monotonic per-table broadcast sequence, so a client can drop a stale or
+   *  out-of-order state and keep only the newest (resets on server restart). */
+  seq?: number;
 }

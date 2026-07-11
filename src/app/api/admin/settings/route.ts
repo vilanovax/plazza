@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { handler, error, json, requireAdmin } from "@/lib/api";
+import { clientIp } from "@/lib/rateLimit";
 import * as repo from "@/lib/repo";
 import type { AdminSettings } from "@/lib/models";
 
@@ -32,7 +34,7 @@ export async function GET() {
 
 export async function PUT(req: Request) {
   return handler(async () => {
-    await requireAdmin();
+    const admin = await requireAdmin();
     const body = await req.json();
     const patch: Partial<AdminSettings> = {};
 
@@ -66,6 +68,10 @@ export async function PUT(req: Request) {
     }
 
     const settings = await repo.updateSettings(patch);
+    await repo.writeAudit({
+      correlationId: randomUUID(), actorId: admin.sub, action: "admin.settings_update",
+      targetType: "settings", metadata: { changed: patch }, ip: clientIp(req),
+    });
     return json({ settings });
   });
 }

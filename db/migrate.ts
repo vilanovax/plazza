@@ -38,14 +38,37 @@ async function main() {
       }
       const sql = readFileSync(join(migrationsDir, file), "utf8");
       console.log(`+ apply ${file}`);
-      await client.query("BEGIN");
-      try {
-        await client.query(sql);
-        await client.query("INSERT INTO _migrations(name) VALUES ($1)", [file]);
-        await client.query("COMMIT");
-      } catch (err) {
-        await client.query("ROLLBACK");
-        throw new Error(`Migration ${file} failed: ${(err as Error).message}`);
+      // A file may opt out of the wrapping transaction (needed for statements
+      // like CREATE INDEX CONCURRENTLY, which can't run inside a transaction)
+      // by including a `-- migrate:no-transaction` marker. Such a migration is
+      // responsible for its own atomicity; we still record it once it succeeds.
+      const noTx = /--\s*migrate:no-transaction/i.test(sql);
+      if (noTx) {
+        // Each statement runs on its own connection query: a multi-statement
+        // query string is an implicit transaction block, which CREATE INDEX
+        // CONCURRENTLY forbids. Statements are separated by an explicit `--;;`
+        // delimiter line (not by guessing at `;`, which is legal inside
+        // dollar-quoted bodies, string literals, and comments).
+        const statements = sql
+          .split(/^[ \t]*--;;[ \t]*$/m)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0 && !/^(?:--[^\n]*\n?)*$/.test(s));
+        try {
+          for (const stmt of statements) await client.query(stmt);
+          await client.query("INSERT INTO _migrations(name) VALUES ($1)", [file]);
+        } catch (err) {
+          throw new Error(`Migration ${file} failed: ${(err as Error).message}`);
+        }
+      } else {
+        await client.query("BEGIN");
+        try {
+          await client.query(sql);
+          await client.query("INSERT INTO _migrations(name) VALUES ($1)", [file]);
+          await client.query("COMMIT");
+        } catch (err) {
+          await client.query("ROLLBACK");
+          throw new Error(`Migration ${file} failed: ${(err as Error).message}`);
+        }
       }
     }
     console.log("Migrations complete.");

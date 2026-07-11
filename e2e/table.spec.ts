@@ -25,7 +25,9 @@ test.describe("Cash table", () => {
     await page.goto(`/table/${id}`);
     await expect(page.getByText("متصل")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(name)).toBeVisible();
-    await expect(page.getByText("در انتظار بازیکنان")).toBeVisible();
+    // The phase text also appears in the sr-only aria-live region, so scope to
+    // the visible header meta to avoid a strict-mode multi-match.
+    await expect(page.locator(".table-header-meta")).toContainText("در انتظار بازیکنان");
   });
 
   test("admin can sit at a newly created table", async ({ page }) => {
@@ -54,6 +56,22 @@ test.describe("Cash table", () => {
     await dialog.getByRole("button", { name: "نشستن", exact: true }).click();
     await expect(dialog).toBeHidden({ timeout: 10_000 });
     await expect(page.getByText("خالی")).toBeVisible();
+  });
+
+  test("private table is unlisted but returns an invite code", async ({ page }) => {
+    const name = `E2E Private ${uniqueSuffix()}`;
+    const res = await page.request.post("/api/tables", {
+      data: { name, smallBlind: 5, bigBlind: 10, minBuyIn: 200, maxBuyIn: 2000, maxSeats: 6, thinkTimeSec: 30, isPrivate: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    const { id, isPrivate, inviteCode } = (await res.json()) as { id: string; isPrivate: boolean; inviteCode: string | null };
+    expect(isPrivate).toBe(true);
+    expect(inviteCode).toBeTruthy();
+
+    // A private table must NOT appear in the public lobby listing.
+    const list = await page.request.get("/api/tables");
+    const { tables } = (await list.json()) as { tables: Array<{ id: string }> };
+    expect(tables.some((t) => t.id === id)).toBe(false);
   });
 
   test("creates a table from the lobby UI", async ({ page }) => {

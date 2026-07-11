@@ -29,6 +29,7 @@ export class TournamentManager {
   private processing = new Set<string>();
   private rebuying = new Set<string>();
   private lateRegistering = new Set<string>();
+  private starting = new Set<string>();
 
   init(): void {
     // Route table hand-end events to the owning tournament (if any).
@@ -183,7 +184,35 @@ export class TournamentManager {
   // --------------------------------------------------------------------------
   // Start
   // --------------------------------------------------------------------------
-  async start(tournamentId: string, adminId: string): Promise<void> {
+  /** Auto-start a Sit & Go once it fills to capacity (called after each join).
+   *  The table is created with a system creator (no admin owns an auto-start). */
+  async autoStartIfFull(tournamentId: string): Promise<void> {
+    const t = await repo.getTournament(tournamentId);
+    if (!t || t.status !== "scheduled") return;
+    const registered = (await repo.listEntries(tournamentId)).filter((e) => e.status === "registered");
+    if (registered.length >= t.max_players && registered.length >= 2) {
+      // No catch: the only benign race (a start already in progress) is handled
+      // by start() returning silently, so any real failure propagates instead of
+      // leaving a full tournament silently stuck in "scheduled".
+      await this.start(tournamentId, null);
+    }
+  }
+
+  async start(tournamentId: string, adminId: string | null): Promise<void> {
+    // Synchronous claim (runs before any await) so two near-simultaneous starts
+    // — e.g. an admin click racing a fill-triggered auto-start — can't both
+    // create a table. The loser returns silently (the winner does the work);
+    // real failures from startInner still throw to the caller.
+    if (this.starting.has(tournamentId)) return;
+    this.starting.add(tournamentId);
+    try {
+      await this.startInner(tournamentId, adminId);
+    } finally {
+      this.starting.delete(tournamentId);
+    }
+  }
+
+  private async startInner(tournamentId: string, adminId: string | null): Promise<void> {
     const t = await repo.getTournament(tournamentId);
     if (!t) throw new InvalidActionError("تورنومنت یافت نشد");
     if (t.status !== "scheduled") throw new InvalidActionError("تورنومنت قابل شروع نیست");

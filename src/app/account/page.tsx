@@ -82,7 +82,7 @@ export default function AccountPage() {
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(e);
     }
-    return [...map.entries()].map(([key, items]) => ({
+    return [...map.entries()].map(([, items]) => ({
       label: formatDayLabel(items[0]!.createdAt),
       items,
     }));

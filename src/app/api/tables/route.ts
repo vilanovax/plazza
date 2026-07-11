@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { handler, error, json, requireSession, requireAdmin } from "@/lib/api";
 import * as repo from "@/lib/repo";
 import type { TableConfig } from "@/lib/poker/types";
@@ -47,7 +48,12 @@ export async function POST(req: Request) {
       extraTimeSec: Math.max(0, Number(body.extraTimeSec ?? s.extra_time_sec)),
       extraTimeRequests: Math.max(-1, Math.floor(Number(body.extraTimeRequests ?? s.extra_time_requests))),
     };
-    const table = await repo.createTable(config.name, config, session.sub);
-    return json({ id: table.id });
+    // Private tables are unlisted from the public lobby and joinable only with
+    // the invite code the host shares (or by an admin).
+    const isPrivate = body.isPrivate === true;
+    const inviteCode = isPrivate ? randomBytes(9).toString("base64url") : null;
+
+    const table = await repo.createTable(config.name, config, session.sub, { isPrivate, inviteCode });
+    return json({ id: table.id, isPrivate, inviteCode });
   });
 }

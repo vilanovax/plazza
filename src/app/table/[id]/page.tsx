@@ -1,8 +1,8 @@
 "use client";
-import { use, useCallback, useEffect, useRef, useState, memo } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useTableSocket } from "@/components/useTableSocket";
+import { useTableSocket, type TopupResult } from "@/components/useTableSocket";
 import { useTableSounds } from "@/components/useTableSounds";
 import { DealerAvatar } from "@/components/DealerAvatar";
 import { ChipStack } from "@/components/ChipStack";
@@ -38,7 +38,13 @@ const PHASE_FA: Record<string, string> = {
 export default function TablePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat } = useTableSocket(id);
+  // Invite code for a private table, read once from the ?invite= query param.
+  const [invite] = useState(() =>
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("invite") ?? undefined
+      : undefined
+  );
+  const { state, tourney, connected, error, clearError, topupResult, sit, leaveSeat, act, topup, showCards, sitOut, setReady, requestExtraTime, kick, ban, rebuy, forfeitTournament, chat } = useTableSocket(id, invite);
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [forfeitOpen, setForfeitOpen] = useState(false);
@@ -55,6 +61,11 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   }), []);
   // The player's own pinned quick-emotes (sent as chat with one tap).
   const [myEmotes, setMyEmotes] = useState<string[]>([]);
+  // Stable across renders so the memoized SeatView isn't invalidated by a fresh
+  // closure on every socket push (its comparator can then skip unchanged seats).
+  const onSeatSelect = useCallback((seatIndex: number, userId: string | null, name: string | null) => {
+    if (userId) setStatsFor({ userId, name: name ?? "بازیکن", seatIndex });
+  }, []);
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
   useEffect(() => { api<{ profile: { emotes: string[] } }>("/api/profile").then((d) => setMyEmotes(d.profile.emotes)).catch(() => {}); }, []);
@@ -196,7 +207,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
                   showdown={state?.phase === "hand_complete"}
                   compact={compact}
                   chipOffset={{ x: pos.chipOx, y: pos.chipOy }}
-                  onSelect={() => seat!.userId && setStatsFor({ userId: seat!.userId, name: seat!.name ?? "بازیکن", seatIndex: i })}
+                  onSelect={onSeatSelect}
                 />
               ) : (
                 <button className="btn btn-ghost seat-empty-btn"
@@ -221,6 +232,16 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
         </div>
       )}
 
+      {/* First-hand ready gate: shown to a seated player before the table's
+          opening hand (handNo 0), on cash tables only. */}
+      {state && mySeat && !tourney && state.handNo === 0 && state.phase === "waiting" && (
+        <ReadyPrompt
+          seats={state.seats}
+          iAmReady={mySeat.ready === true}
+          onToggle={() => setReady(!mySeat.ready)}
+        />
+      )}
+
       {/* Controls */}
       {mySeat ? (
         <ActionBar
@@ -229,6 +250,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           mySeat={mySeat}
           act={act}
           topup={topup}
+          topupResult={topupResult}
           leaveSeat={leaveSeat}
           preAction={preAction?.type ?? null}
           onPreAction={selectPre}
@@ -282,6 +304,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           name={statsFor.name}
           canKick={me?.role === "admin" && statsFor.userId !== me?.id}
           onKick={() => { kick(statsFor.seatIndex, statsFor.userId); setStatsFor(null); }}
+          onBan={!tourney ? () => { ban(statsFor.userId); setStatsFor(null); } : undefined}
           onClose={() => setStatsFor(null)}
         />
       )}
@@ -351,18 +374,61 @@ function seatPosition(
   };
 }
 
-const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, compact, chipOffset, onSelect }: {
+interface SeatViewProps {
   seat: SeatVM; isTurn: boolean; isButton: boolean; isViewer?: boolean; community: Card[]; deadline?: number; showdown?: boolean; compact?: boolean;
-  chipOffset?: { x: number; y: number }; onSelect?: () => void;
-}) {
+  chipOffset?: { x: number; y: number }; onSelect?: (seatIndex: number, userId: string | null, name: string | null) => void;
+}
+
+/**
+ * The table re-broadcasts a brand-new state object on every socket push (each
+ * action, chat line, timer refresh), so `seat`/`community` are always fresh
+ * references and a shallow memo would never skip a render. This comparator does
+ * a field-wise compare of everything the seat actually paints, so a broadcast
+ * that doesn't touch THIS seat (e.g. a chat message, or another seat's bet)
+ * skips both the re-render and the per-seat hand evaluation below.
+ */
+function seatViewEqual(a: SeatViewProps, b: SeatViewProps): boolean {
+  if (
+    a.isTurn !== b.isTurn || a.isButton !== b.isButton || a.isViewer !== b.isViewer ||
+    a.showdown !== b.showdown || a.compact !== b.compact || a.deadline !== b.deadline ||
+    a.onSelect !== b.onSelect
+  ) return false;
+  if (a.chipOffset?.x !== b.chipOffset?.x || a.chipOffset?.y !== b.chipOffset?.y) return false;
+  if (a.community.length !== b.community.length) return false;
+  for (let i = 0; i < a.community.length; i++) if (a.community[i] !== b.community[i]) return false;
+  const s1 = a.seat, s2 = b.seat;
+  if (
+    s1.status !== s2.status || s1.betThisRound !== s2.betThisRound || s1.stack !== s2.stack ||
+    s1.name !== s2.name || s1.title !== s2.title || s1.tagline !== s2.tagline ||
+    s1.isConnected !== s2.isConnected || s1.sitOut !== s2.sitOut || s1.ready !== s2.ready || s1.userId !== s2.userId ||
+    s1.seatIndex !== s2.seatIndex || s1.avatar !== s2.avatar || s1.cardBack !== s2.cardBack ||
+    s1.chipColor !== s2.chipColor || s1.hasCards !== s2.hasCards
+  ) return false;
+  const h1 = s1.holeCards, h2 = s2.holeCards;
+  if ((h1?.length ?? 0) !== (h2?.length ?? 0)) return false;
+  if (h1 && h2) for (let i = 0; i < h1.length; i++) if (h1[i] !== h2[i]) return false;
+  return true;
+}
+
+const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, compact, chipOffset, onSelect }: SeatViewProps) {
   const folded = seat.status === "folded";
   // Show the current best hand for any cards we can actually see (the viewer's
-  // own during play, everyone's at showdown), from the flop onward.
-  const handName = !folded ? currentHandName(seat.holeCards, community) : null;
+  // own during play, everyone's at showdown), from the flop onward. Every socket
+  // broadcast hands us fresh array wrappers, so key the memo on the card
+  // *contents* (Card is a number) — otherwise a re-render from a non-card change
+  // (stack, bet, deadline) would needlessly re-evaluate the hand.
+  const holeKey = seat.holeCards?.join(",") ?? "";
+  const communityKey = community.join(",");
+  const handName = useMemo(
+    () => (folded ? null : currentHandName(seat.holeCards, community)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by card contents; the array refs change on every push
+    [folded, holeKey, communityKey]
+  );
+  const select = onSelect ? () => onSelect(seat.seatIndex, seat.userId, seat.name) : undefined;
   return (
     <div
-      onClick={onSelect}
-      onKeyDown={(e) => { if (onSelect && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onSelect(); } }}
+      onClick={select}
+      onKeyDown={(e) => { if (select && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); select(); } }}
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
       aria-label={onSelect ? `آمار ${seat.name ?? "بازیکن"}` : undefined}
@@ -403,6 +469,7 @@ const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, comm
           {seat.title && <div className="seat-title">«{seat.title}»</div>}
           {seat.status === "allin" && <div className="seat-tag-allin">آل‌این</div>}
           {seat.sitOut && <div className="seat-tag-sitout">سیت‌اوت</div>}
+          {seat.ready && <div className="seat-tag-ready">آماده ✅</div>}
           {isTurn && deadline && <Countdown deadline={deadline} />}
         </div>
         <PlayerAvatar
@@ -415,7 +482,7 @@ const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, comm
       </div>
     </div>
   );
-});
+}, seatViewEqual);
 
 function Countdown({ deadline }: { deadline: number }) {
   const [now, setNow] = useState(0);
@@ -448,21 +515,30 @@ function ChatPanel({ compact, log, myId, muteAll, mutedUsers, emotes, onToggleMu
   const [open, setOpen] = useState(() => !compact);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Collapse the feed on the transition INTO compact (small/landscape) layout.
+  // Done at render time rather than in an effect — same "adjust state on prop
+  // change" pattern used by ActionBar — to avoid a cascading extra render.
+  const [prevCompact, setPrevCompact] = useState(compact);
+  if (compact !== prevCompact) {
+    setPrevCompact(compact);
     if (compact) setOpen(false);
-  }, [compact]);
+  }
 
   const collapsed = !open;
 
-  // Hide muted players' chat/all-in lines; table events always show.
-  const visible = log.filter((e) => {
-    if (e.kind !== "chat" && e.kind !== "allin") return true;
-    const uid = e.author?.userId;
-    if (!uid || uid === myId) return true;
-    if (muteAll) return false;
-    return !mutedUsers.has(uid);
-  });
-  const recent = visible.slice(-40);
+  // Hide muted players' chat/all-in lines; table events always show. Memoised so
+  // this only re-runs when the log or mute prefs change, not on every render
+  // (e.g. typing in the compose box, which updates local `text` state).
+  const recent = useMemo(() => {
+    const visible = log.filter((e) => {
+      if (e.kind !== "chat" && e.kind !== "allin") return true;
+      const uid = e.author?.userId;
+      if (!uid || uid === myId) return true;
+      if (muteAll) return false;
+      return !mutedUsers.has(uid);
+    });
+    return visible.slice(-40);
+  }, [log, myId, muteAll, mutedUsers]);
   const lastEntryId = recent[recent.length - 1]?.id;
 
   useEffect(() => {
@@ -565,13 +641,39 @@ function ChatPanel({ compact, log, myId, muteAll, mutedUsers, emotes, onToggleMu
  *  Keyed by the entry id so the CSS animation replays only on a NEW all-in
  *  (React remounts on key change) — no timers or state, so it's lint-clean. */
 function AllInFlash({ log }: { log: LogEntry[] }) {
-  const lastAllIn = [...log].reverse().find((e) => e.kind === "allin");
+  // Reverse scan without copying the array (and without ES2023 findLast, which
+  // isn't polyfilled for older iOS WebViews at our ES2017 runtime target).
+  let lastAllIn: LogEntry | undefined;
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i].kind === "allin") { lastAllIn = log[i]; break; }
+  }
   if (!lastAllIn) return null;
   return (
     <div key={lastAllIn.id} className="allin-flash">
       <div className="allin-flash-text">
         ⚡ {lastAllIn.author?.name ?? ""} — آل‌این! 🔥
       </div>
+    </div>
+  );
+}
+
+function ReadyPrompt({ seats, iAmReady, onToggle }: {
+  seats: SeatVM[]; iAmReady: boolean; onToggle: () => void;
+}) {
+  // Match the engine's dealable criteria so the count reflects who can actually
+  // be dealt in (excludes sitting-out / busted seats).
+  const eligible = seats.filter((s) => s.userId && s.status !== "empty" && !s.sitOut && s.stack > 0);
+  const seated = eligible.length;
+  const readyCount = eligible.filter((s) => s.ready).length;
+  return (
+    <div className="panel ready-prompt">
+      <div className="ready-prompt-text">
+        <span className="ready-prompt-title">شروع میز</span>
+        <span className="ready-prompt-count">{readyCount.toLocaleString("fa")} از {seated.toLocaleString("fa")} آماده — با آماده‌شدن حداقل ۲ نفر، دست اول شروع می‌شود</span>
+      </div>
+      <button className={`btn ${iAmReady ? "btn-ghost" : "btn-gold"} ready-prompt-btn`} onClick={onToggle}>
+        {iAmReady ? "لغو آمادگی" : "آماده‌ام ✅"}
+      </button>
     </div>
   );
 }
@@ -595,10 +697,11 @@ function ShowCardsPrompt({ until, onShow }: { until: number; onShow: () => void 
   );
 }
 
-function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, onPreAction, sitOut, requestExtraTime, isTournament, onForfeit }: {
+function ActionBar({ compact, state, mySeat, act, topup, topupResult, leaveSeat, preAction, onPreAction, sitOut, requestExtraTime, isTournament, onForfeit }: {
   compact?: boolean;
   state: PublicGameState; mySeat: SeatVM;
-  act: (a: PlayerAction) => void; topup: (n: number) => void; leaveSeat: () => void;
+  act: (a: PlayerAction) => void; topup: (n: number, requestId: string) => void; leaveSeat: () => void;
+  topupResult?: TopupResult | null;
   preAction: PreAction | null; onPreAction: (t: PreAction) => void;
   sitOut: (out: boolean) => void; requestExtraTime: () => void;
   isTournament?: boolean; onForfeit?: () => void;
@@ -622,6 +725,39 @@ function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, o
   const canRaise = maxTo > state.currentBet;
   const [showTopup, setShowTopup] = useState(false);
   const [topupAmt, setTopupAmt] = useState(state.config.topUpMin || state.config.bigBlind * 20);
+  const [topupMsg, setTopupMsg] = useState<string | null>(null);
+  // Stable id for the current top-up intent, kept in STATE (not a ref, so the
+  // render-time ack handling below stays lint-clean). Minted when the panel
+  // opens and PERSISTED across re-opens — so a retry after an ambiguous network
+  // failure reuses the same id and the server dedups it — until the server
+  // acknowledges it, at which point it's cleared so the next top-up is fresh.
+  const [topupReqId, setTopupReqId] = useState("");
+  const [seenAck, setSeenAck] = useState<string | null>(null);
+  const openTopup = () => {
+    const opening = !showTopup;
+    setShowTopup(opening);
+    if (opening) {
+      setTopupMsg(null);
+      setTopupReqId((cur) => cur || crypto.randomUUID());
+    }
+  };
+  const submitTopup = () => {
+    const id = topupReqId || crypto.randomUUID();
+    if (id !== topupReqId) setTopupReqId(id);
+    topup(topupAmt, id);
+    setShowTopup(false);
+  };
+  // Consume the server ack (render-time adjust-state-on-prop-change pattern):
+  // surface the outcome and free the intent id so the NEXT top-up is a fresh
+  // request, while a retry BEFORE the ack reuses the same id and stays deduped.
+  const ackId = topupResult?.requestId;
+  if (topupResult && ackId && ackId === topupReqId && ackId !== seenAck) {
+    setSeenAck(ackId);
+    setTopupReqId("");
+    setTopupMsg(
+      topupResult.status === "pending" ? "درخواست تاپ‌آپ برای تأیید مدیر ثبت شد" : "تاپ‌آپ اعمال شد"
+    );
+  }
 
   return (
     <div className={`panel action-bar${myTurn ? " action-bar--turn" : ""}`}>
@@ -682,7 +818,7 @@ function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, o
                 </button>
               )}
               {!isTournament && state.config.allowTopUp && (
-                <button className="btn btn-gold action-btn-sm" onClick={() => setShowTopup((s) => !s)}>+ تاپ‌آپ</button>
+                <button className="btn btn-gold action-btn-sm" onClick={openTopup}>+ تاپ‌آپ</button>
               )}
               {isTournament ? (
                 <button className="btn btn-danger action-btn-sm" onClick={onForfeit}>انصراف از تورنومنت</button>
@@ -697,9 +833,10 @@ function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, o
       {showTopup && !isTournament && (
         <div className="action-topup-row">
           <Input type="number" className="action-topup-input" value={topupAmt} onChange={(e) => setTopupAmt(Number(e.target.value))} />
-          <button className="btn btn-primary" onClick={() => { topup(topupAmt); setShowTopup(false); }}>درخواست</button>
+          <button className="btn btn-primary" onClick={submitTopup}>درخواست</button>
         </div>
       )}
+      {topupMsg && !showTopup && <div className="action-topup-msg" role="status">{topupMsg}</div>}
     </div>
   );
 }
@@ -721,8 +858,8 @@ function StatChip({ label, value, tone = "default" }: { label: string; value: st
   );
 }
 
-function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
-  tableId: string; userId: string; name: string; canKick?: boolean; onKick?: () => void; onClose: () => void;
+function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onBan, onClose }: {
+  tableId: string; userId: string; name: string; canKick?: boolean; onKick?: () => void; onBan?: () => void; onClose: () => void;
 }) {
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [err, setErr] = useState("");
@@ -833,6 +970,15 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
             onClick={() => { if (confirm(`${name} از میز حذف شود؟`)) onKick(); }}
           >
             حذف از میز
+          </button>
+        )}
+        {canKick && onBan && (
+          <button
+            type="button"
+            className="btn btn-danger stats-kick-btn"
+            onClick={() => { if (confirm(`${name} از این میز مسدود شود؟ دیگر نمی‌تواند برگردد.`)) onBan(); }}
+          >
+            مسدودسازی از میز
           </button>
         )}
       </div>

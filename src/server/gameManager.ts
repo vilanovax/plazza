@@ -11,6 +11,7 @@
  * On restart, tables are rehydrated from table_seats (last hand-end stacks);
  * any hand interrupted by a crash is abandoned and committed chips revert.
  */
+import { randomUUID } from "node:crypto";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 import { HoldemGame, InvalidActionError } from "../lib/poker/engine";
 import { cardToString } from "../lib/poker/cards";
@@ -34,12 +35,17 @@ interface TableRuntime {
   /** Rolling table event feed. */
   log: LogEntry[];
   logSeq: number;
+  /** Monotonic broadcast counter so clients can drop stale/out-of-order state. */
+  stateSeq: number;
   /** Per-user auto-removal timers for players who sit out too long. */
   sitOutTimers: Map<string, NodeJS.Timeout>;
   /** True when this table backs a tournament (disables voluntary sit-out). */
   isTournament: boolean;
   /** When true, no new hands are dealt (e.g. a scheduled tournament break). */
   paused?: boolean;
+  /** True once the table has ever dealt a hand — lifts the first-hand "ready"
+   *  gate (cash tables only). Seeded from the DB so a restart doesn't re-gate. */
+  hasDealtFirstHand: boolean;
   /** Cached cosmetic profiles for seated players (attached to broadcasts). */
   profiles: Map<string, { avatar: string; title: string; tagline: string; chipColor: string; cardBack: string }>;
 }
@@ -118,13 +124,23 @@ export class GameManager {
           }
         }
       }
+      // Rehydrate the persisted event feed (cash tables only) so it survives a
+      // restart; resume the sequence counter from the highest stored id.
+      const isTournament = row.tournament_id != null;
+      const log = isTournament ? [] : await repo.recentTableEvents(tableId, LOG_CAP);
+      const logSeq = log.reduce((max, e) => Math.max(max, e.id), 0);
+      // Tournaments never use the ready gate; a cash table that has already dealt
+      // a hand (per the DB) shouldn't be re-gated after a restart.
+      const hasDealtFirstHand = isTournament ? true : await repo.tableHasHands(tableId);
       const rt: TableRuntime = {
         game,
         tableId,
-        log: [],
-        logSeq: 0,
+        log,
+        logSeq,
+        stateSeq: 0,
         sitOutTimers: new Map(),
-        isTournament: row.tournament_id != null,
+        isTournament,
+        hasDealtFirstHand,
         profiles: new Map(),
       };
       for (const uid of activeSeatUserIds) {
@@ -424,6 +440,18 @@ export class GameManager {
     this.broadcast(tableId);
   }
 
+  /** Toggle a player's "ready" flag; gates only the table's first hand. */
+  async setReady(tableId: string, userId: string, ready: boolean): Promise<void> {
+    const rt = this.tables.get(tableId);
+    if (!rt) throw new InvalidActionError("میز فعال نیست");
+    if (rt.isTournament) return; // tournaments start via their own flow
+    rt.game.setReady(userId, ready); // throws if the user isn't seated
+    const seat = rt.game.seats.find((s) => s.userId === userId);
+    if (seat) this.pushLog(rt, `${seat.name ?? "بازیکن"} ${ready ? "آماده شد ✅" : "آمادگی را لغو کرد"}`);
+    this.maybeStartHand(rt);
+    this.broadcast(tableId);
+  }
+
   private clearSitOutTimer(rt: TableRuntime, userId: string): void {
     const t = rt.sitOutTimers.get(userId);
     if (t) {
@@ -464,6 +492,38 @@ export class GameManager {
     await this.afterMutation(rt);
   }
 
+  /** Admin bans a player from this table (kick + persist so they can't rejoin). */
+  async ban(tableId: string, actorRole: string, userId: string, bannedBy: string): Promise<void> {
+    if (actorRole !== "admin") throw new InvalidActionError("فقط مدیر می‌تواند بازیکن را مسدود کند");
+    if (!userId) throw new InvalidActionError("بازیکن نامعتبر است");
+    const rt = this.tables.get(tableId);
+    // Tournament guard with a DB fallback: an unloaded table has no runtime, and
+    // `rt?.isTournament` would be undefined (falsy) and skip the check.
+    const isTournament = rt ? rt.isTournament : !!(await repo.getTable(tableId))?.tournament_id;
+    if (isTournament) throw new InvalidActionError("در تورنومنت امکان مسدودسازی میز نیست");
+    // Persist the ban and its audit record atomically — a ban must never exist
+    // without its log (or vice versa). Doing this first also means a rejoin race
+    // can't slip in before the ban lands.
+    await tx(async (client) => {
+      await repo.banFromTableTx(client, tableId, userId, bannedBy);
+      await repo.writeAuditTx(client, {
+        correlationId: randomUUID(), actorId: bannedBy, action: "admin.table_ban",
+        targetType: "user", targetId: userId, metadata: { tableId },
+      });
+    });
+    // If they're seated, remove them (cashing their stack back to the bank).
+    if (rt) {
+      const seat = rt.game.seats.find((s) => s.userId === userId);
+      if (seat) {
+        const name = await this.removeSeatCore(rt, userId, true);
+        if (name !== null) {
+          this.pushLog(rt, `${name} توسط مدیر از میز مسدود شد`);
+          await this.afterMutation(rt);
+        }
+      }
+    }
+  }
+
   /** Player asks for extra think-time on their turn (time bank). */
   async requestExtraTime(tableId: string, userId: string): Promise<void> {
     const rt = this.tables.get(tableId);
@@ -478,9 +538,11 @@ export class GameManager {
   private maybeStartHand(rt: TableRuntime): void {
     if (rt.paused) return; // e.g. a scheduled tournament break — no new hands
     if (rt.nextHandTimer || rt.actionTimer) return;
-    if (rt.game.canStartHand()) {
-      rt.nextHandTimer = setTimeout(() => this.startHand(rt), NEXT_HAND_DELAY_MS);
-    }
+    if (!rt.game.canStartHand()) return;
+    // First-hand ready gate — cash tables only, before the table's opening hand:
+    // wait until at least two dealable players have tapped "ready".
+    if (!rt.isTournament && !rt.hasDealtFirstHand && rt.game.readyDealableCount() < 2) return;
+    rt.nextHandTimer = setTimeout(() => this.startHand(rt), NEXT_HAND_DELAY_MS);
   }
 
   /** Pause/resume dealing new hands (scheduled tournament breaks). The current
@@ -508,6 +570,7 @@ export class GameManager {
     if (rt.paused) return; // a break may have begun after this hand was queued
     if (!rt.game.canStartHand()) return;
     rt.game.startHand();
+    rt.hasDealtFirstHand = true; // the ready gate applies only to the opening hand
     // Snapshot who was dealt into this hand (for per-player stats).
     rt.handParticipants = rt.game.seats
       .filter((s) => s.userId && (s.holeCards?.length ?? 0) === 2)
@@ -731,8 +794,17 @@ export class GameManager {
   // Broadcasting
   // --------------------------------------------------------------------------
   private pushLog(rt: TableRuntime, text: string, kind: LogEntry["kind"] = "event", author?: LogEntry["author"]): void {
-    rt.log.push({ id: ++rt.logSeq, ts: Date.now(), text, kind, author });
+    const entry: LogEntry = { id: ++rt.logSeq, ts: Date.now(), text, kind, author };
+    rt.log.push(entry);
     if (rt.log.length > LOG_CAP) rt.log.splice(0, rt.log.length - LOG_CAP);
+    // Persist (best-effort, fire-and-forget) so the feed survives a restart.
+    // Tournament tables are ephemeral runtime state, so skip persisting theirs.
+    if (!rt.isTournament) {
+      void repo.insertTableEvent(rt.tableId, {
+        seq: entry.id, kind: entry.kind ?? "event", text,
+        authorUserId: author?.userId, authorName: author?.name, ts: entry.ts,
+      });
+    }
   }
 
   /** A player chat message into the table feed (validated + rate-limited by the socket layer). */
@@ -799,10 +871,12 @@ export class GameManager {
     const sockets = this.roomSockets.get(tableId);
     if (!sockets?.size) return;
     const log = rt.log;
+    const seq = ++rt.stateSeq; // one bump per broadcast; same seq for all viewers
     for (const s of sockets) {
       const uid = (s.data as { userId?: string }).userId ?? null;
       const ps = rt.game.publicState(uid);
       ps.log = log;
+      ps.seq = seq;
       this.attachProfiles(ps, rt, uid);
       s.emit("state", ps);
     }

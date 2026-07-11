@@ -16,7 +16,7 @@ import type {
   UserProfileRow,
 } from "./models";
 import type { ProfileFields } from "./profile/presets";
-import type { TableConfig } from "./poker/types";
+import type { TableConfig, LogEntry } from "./poker/types";
 import type { BlindLevel, TournamentConfig } from "./tournament/types";
 import { playableLevel } from "./tournament/types";
 
@@ -106,8 +106,13 @@ export async function setPasswordHash(userId: string, hash: string): Promise<voi
   await query("UPDATE users SET password_hash = $2 WHERE id = $1", [userId, hash]);
 }
 
-export async function setUserActive(userId: string, active: boolean): Promise<void> {
-  await query("UPDATE users SET is_active = $2 WHERE id = $1", [userId, active]);
+/** Returns true if a user row was actually updated (false if no such user). */
+export async function setUserActive(userId: string, active: boolean): Promise<boolean> {
+  const rows = await query<{ id: string }>(
+    "UPDATE users SET is_active = $2 WHERE id = $1 RETURNING id",
+    [userId, active]
+  );
+  return rows.length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -316,11 +321,13 @@ export async function updateSettings(patch: Partial<AdminSettings>): Promise<Adm
 export async function createTable(
   name: string,
   config: TableConfig,
-  createdBy: string
+  createdBy: string | null,
+  opts?: { isPrivate?: boolean; inviteCode?: string | null }
 ): Promise<PokerTableRow> {
   const row = await one<PokerTableRow>(
-    `INSERT INTO poker_tables (name, config, created_by) VALUES ($1, $2, $3) RETURNING *`,
-    [name, JSON.stringify(config), createdBy]
+    `INSERT INTO poker_tables (name, config, created_by, is_private, invite_code)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [name, JSON.stringify(config), createdBy ?? null, opts?.isPrivate ?? false, opts?.inviteCode ?? null]
   );
   return row!;
 }
@@ -344,6 +351,7 @@ export async function listOpenTablesWithCounts(): Promise<
        LEFT JOIN table_seats s ON s.table_id = t.id AND s.user_id IS NOT NULL
       WHERE t.status = 'open'
         AND t.tournament_id IS NULL
+        AND t.is_private = FALSE
       GROUP BY t.id
       ORDER BY t.created_at DESC`
   );
@@ -366,6 +374,161 @@ export async function getTableNamesByIds(ids: string[]): Promise<Array<{ id: str
 
 export async function getTable(id: string): Promise<PokerTableRow | null> {
   return one<PokerTableRow>("SELECT * FROM poker_tables WHERE id = $1", [id]);
+}
+
+/** Whether this table has ever dealt a hand (persists the first-hand ready gate
+ *  across restarts, so an established table isn't re-gated after a reboot). */
+export async function tableHasHands(tableId: string): Promise<boolean> {
+  const rows = await query<{ exists: boolean }>(
+    "SELECT EXISTS(SELECT 1 FROM hands WHERE table_id = $1) AS exists",
+    [tableId]
+  );
+  return rows[0]?.exists === true;
+}
+
+// ---------------------------------------------------------------------------
+// Audit log (append-only; see migration 0017)
+// ---------------------------------------------------------------------------
+export interface AuditEntry {
+  correlationId?: string | null;
+  actorId?: string | null;
+  action: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  ip?: string | null;
+}
+
+const AUDIT_INSERT = `INSERT INTO audit_log (correlation_id, actor_id, action, target_type, target_id, metadata, ip)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+const auditParams = (e: AuditEntry) => [
+  e.correlationId ?? null,
+  e.actorId ?? null,
+  e.action,
+  e.targetType ?? null,
+  e.targetId ?? null,
+  e.metadata ? JSON.stringify(e.metadata) : null,
+  e.ip ?? null,
+];
+
+/**
+ * Append a security/admin event, atomically inside an existing transaction.
+ * THROWS on failure (rolls back the caller's tx) — use this for admin-critical
+ * state changes (e.g. chip credits) so a state change never commits without its
+ * audit record.
+ */
+export async function writeAuditTx(client: PoolClient, e: AuditEntry): Promise<void> {
+  await client.query(AUDIT_INSERT, auditParams(e));
+}
+
+/** Append a security/admin event. Best-effort: never throws into the caller —
+ *  a logging failure must not break the operation being audited. Use this for
+ *  non-critical events (auth, settings) where losing one record is acceptable;
+ *  use writeAuditTx for anything that must be atomic with a state change. */
+export async function writeAudit(e: AuditEntry): Promise<void> {
+  try {
+    await query(AUDIT_INSERT, auditParams(e));
+  } catch (err) {
+    console.error("writeAudit failed", err);
+  }
+}
+
+/** Search the audit log by actor, action, and/or time window (newest first). */
+export async function searchAudit(filter: {
+  actorId?: string;
+  action?: string;
+  correlationId?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+}): Promise<AuditRow[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const add = (cond: string, val: unknown) => { params.push(val); where.push(cond.replace("$?", `$${params.length}`)); };
+  if (filter.actorId) add("actor_id = $?", filter.actorId);
+  if (filter.action) add("action = $?", filter.action);
+  if (filter.correlationId) add("correlation_id = $?", filter.correlationId);
+  if (filter.since) add("created_at >= $?", filter.since);
+  if (filter.until) add("created_at <= $?", filter.until);
+  const limit = Math.min(500, Math.max(1, filter.limit ?? 100));
+  return query<AuditRow>(
+    `SELECT * FROM audit_log ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+     ORDER BY created_at DESC, id DESC LIMIT ${limit}`,
+    params
+  );
+}
+
+export interface AuditRow {
+  id: string;
+  correlation_id: string | null;
+  actor_id: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  metadata: Record<string, unknown> | null;
+  ip: string | null;
+  created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Table event feed (persisted so it survives a restart; see migration 0018)
+// ---------------------------------------------------------------------------
+export async function insertTableEvent(
+  tableId: string,
+  e: { seq: number; kind: string; text: string; authorUserId?: string | null; authorName?: string | null; ts: number }
+): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO table_events (table_id, seq, kind, text, author_user_id, author_name, ts)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [tableId, e.seq, e.kind, e.text, e.authorUserId ?? null, e.authorName ?? null, e.ts]
+    );
+  } catch (err) {
+    console.error("insertTableEvent failed", err);
+  }
+}
+
+/** The most recent feed entries for a table, oldest-first (for rehydration). */
+export async function recentTableEvents(tableId: string, limit = 60): Promise<LogEntry[]> {
+  const rows = await query<{
+    seq: number; kind: string; text: string; author_user_id: string | null; author_name: string | null; ts: string;
+  }>(
+    `SELECT seq, kind, text, author_user_id, author_name, ts
+       FROM table_events WHERE table_id = $1 ORDER BY id DESC LIMIT $2`,
+    [tableId, Math.min(200, Math.max(1, limit))]
+  );
+  return rows.reverse().map((r) => ({
+    id: Number(r.seq),
+    ts: Number(r.ts),
+    text: r.text,
+    kind: r.kind as LogEntry["kind"],
+    author: r.author_user_id ? { userId: r.author_user_id, name: r.author_name ?? "بازیکن" } : undefined,
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Table bans (persistent; see migration 0020)
+// ---------------------------------------------------------------------------
+/** Persist a table ban inside an existing transaction (atomic with its audit). */
+export async function banFromTableTx(
+  client: PoolClient,
+  tableId: string,
+  userId: string,
+  bannedBy: string
+): Promise<void> {
+  await client.query(
+    `INSERT INTO table_bans (table_id, user_id, banned_by) VALUES ($1, $2, $3)
+     ON CONFLICT (table_id, user_id) DO NOTHING`,
+    [tableId, userId, bannedBy]
+  );
+}
+
+export async function isBannedFromTable(tableId: string, userId: string): Promise<boolean> {
+  const rows = await query<{ user_id: string }>(
+    "SELECT user_id FROM table_bans WHERE table_id = $1 AND user_id = $2",
+    [tableId, userId]
+  );
+  return rows.length > 0;
 }
 
 export async function closeTable(id: string): Promise<void> {

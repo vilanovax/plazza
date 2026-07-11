@@ -45,6 +45,30 @@ test("blinds are posted and first to act is left of BB", () => {
   assert.equal(g.currentBet, 10);
 });
 
+test("ready flags: setReady + readyDealableCount, cleared once a hand starts", () => {
+  // The engine exposes readiness state; the FIRST-hand gate itself lives in the
+  // game manager (which knows the table type). canStartHand stays dealable-only.
+  const g = new HoldemGame("ready1", cfg());
+  g.sit(0, "u0", "A", 1000);
+  g.sit(1, "u1", "B", 1000);
+  assert.equal(g.readyDealableCount(), 0);
+  assert.equal(g.canStartHand(), true); // engine gate is purely dealable >= 2
+  g.setReady("u0", true);
+  assert.equal(g.readyDealableCount(), 1);
+  g.setReady("u1", true);
+  assert.equal(g.readyDealableCount(), 2);
+  // A sitting-out player isn't counted as a ready dealable seat.
+  g.setSitOut("u1", true);
+  assert.equal(g.readyDealableCount(), 1);
+  g.setSitOut("u1", false);
+
+  g.startHand();
+  assert.equal(g.handNo, 1);
+  // Ready flags are cleared once play begins.
+  assert.equal(g.seats[0].ready, false);
+  assert.equal(g.readyDealableCount(), 0);
+});
+
 test("everyone folds to the big blind — BB wins the pot, chips conserved", () => {
   const g = new HoldemGame("t2", cfg());
   g.sit(0, "u0", "A", 1000);

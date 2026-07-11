@@ -16,10 +16,17 @@ export function useTournamentSocket(tournamentId: string): TournamentSocket {
   const [error, setError] = useState<string | null>(null);
   const sockRef = useRef<Socket | null>(null);
 
-  useEffect(() => {
+  // Clear stale detail/error when switching tournaments — done at render time
+  // (adjust-state-on-prop-change) rather than in the effect below, so it doesn't
+  // trigger a cascading render.
+  const [prevId, setPrevId] = useState(tournamentId);
+  if (tournamentId !== prevId) {
+    setPrevId(tournamentId);
     setDetail(null);
     setError(null);
+  }
 
+  useEffect(() => {
     const socket = io({ path: "/api/socket", withCredentials: true, transports: ["websocket", "polling"] });
     sockRef.current = socket;
 
