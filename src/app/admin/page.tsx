@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
 import { Field, Input, LoadingScreen, Modal, PageHeader, PageShell, Select, Tabs } from "@/components/ui";
 
-type Tab = "users" | "topups" | "settlements" | "settings";
+type Tab = "users" | "topups" | "settlements" | "reports" | "settings";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -35,6 +35,7 @@ export default function AdminPage() {
           { id: "users", label: "کاربران", panel: <UsersTab /> },
           { id: "topups", label: "تاپ‌آپ", panel: <TopupsTab /> },
           { id: "settlements", label: "تسویه‌ها", panel: <SettlementsTab /> },
+          { id: "reports", label: "گزارش‌ها", panel: <ReportsTab /> },
           { id: "settings", label: "تنظیمات", panel: <SettingsTab /> },
         ]}
       />
@@ -244,6 +245,57 @@ function SettlementsTab() {
             <button className={`btn ${l.settled ? "btn-ghost" : "btn-gold"} admin-btn-sm`} onClick={() => settle(l.id, !l.settled)}>
               {l.settled ? "تسویه‌شده ✓" : "تسویه"}
             </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface ReportRow {
+  id: string; reason: string; status: string; created_at: string;
+  reporter_name: string | null; reported_name: string | null; table_id: string | null;
+}
+
+function ReportsTab() {
+  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [showAll, setShowAll] = useState(false);
+  const load = useCallback(
+    () => api<{ reports: ReportRow[] }>(`/api/admin/reports${showAll ? "" : "?status=open"}`).then((d) => setReports(d.reports)),
+    [showAll]
+  );
+  useEffect(() => { load(); }, [load]);
+
+  async function resolve(id: string, status: "reviewed" | "dismissed") {
+    await api(`/api/admin/reports/${id}/resolve`, { method: "POST", body: { status } });
+    load();
+  }
+
+  return (
+    <div>
+      <div className="admin-reports-head">
+        <div style={{ fontWeight: 700 }}>گزارش‌های بازیکنان</div>
+        <button className="btn btn-ghost admin-btn-sm" onClick={() => setShowAll((s) => !s)}>
+          {showAll ? "فقط باز" : "همه"}
+        </button>
+      </div>
+      {reports.length === 0 && <div className="admin-reports-empty">گزارشی نیست.</div>}
+      <div style={{ display: "grid", gap: 6 }}>
+        {reports.map((r) => (
+          <div key={r.id} className="panel admin-ledger-row">
+            <div style={{ fontSize: 13 }}>
+              <b>{r.reported_name ?? "?"}</b> — {r.reason}
+              <div className="admin-ledger-meta">
+                گزارش‌دهنده: {r.reporter_name ?? "?"} · {new Date(r.created_at).toLocaleString("fa")}
+                {r.status !== "open" ? ` · ${r.status === "reviewed" ? "رسیدگی‌شده" : "رد‌شده"}` : ""}
+              </div>
+            </div>
+            {r.status === "open" && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn btn-gold admin-btn-sm" onClick={() => resolve(r.id, "reviewed")}>رسیدگی شد</button>
+                <button className="btn btn-ghost admin-btn-sm" onClick={() => resolve(r.id, "dismissed")}>رد</button>
+              </div>
+            )}
           </div>
         ))}
       </div>

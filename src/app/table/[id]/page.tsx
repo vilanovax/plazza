@@ -885,11 +885,23 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onBan, isSel
 }) {
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [err, setErr] = useState("");
+  const [reporting, setReporting] = useState(false);
+  const [reportMsg, setReportMsg] = useState<string | null>(null);
   useEffect(() => {
     api<PlayerStats>(`/api/tables/${tableId}/player/${userId}/stats`)
       .then(setStats)
       .catch((e) => setErr((e as Error).message));
   }, [tableId, userId]);
+
+  async function submitReport(reason: string) {
+    setReporting(false);
+    try {
+      await api("/api/reports", { method: "POST", body: { userId, reason, tableId } });
+      setReportMsg("گزارش شما ثبت شد و توسط مدیر بررسی می‌شود");
+    } catch (e) {
+      setReportMsg((e as Error).message);
+    }
+  }
 
   const displayName = stats?.displayName ?? name;
   const profile = stats?.profile;
@@ -994,6 +1006,11 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onBan, isSel
             {isBlocked ? "رفع بلاک" : "بلاک کاربر"}
           </button>
         )}
+        {!isSelf && !reportMsg && (
+          <button type="button" className="btn btn-ghost stats-report-btn" onClick={() => setReporting((r) => !r)}>
+            گزارش کاربر
+          </button>
+        )}
         {canKick && onKick && (
           <button
             type="button"
@@ -1013,6 +1030,16 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onBan, isSel
           </button>
         )}
       </div>
+
+      {reporting && !reportMsg && (
+        <div className="stats-report-reasons">
+          <span className="stats-report-label">علت گزارش:</span>
+          {["رفتار توهین‌آمیز", "تقلب یا تبانی", "اسپم و مزاحمت", "نام یا پروفایل نامناسب", "سایر"].map((r) => (
+            <button key={r} type="button" className="btn btn-ghost stats-report-reason" onClick={() => submitReport(r)}>{r}</button>
+          ))}
+        </div>
+      )}
+      {reportMsg && <p className="stats-report-msg" role="status">{reportMsg}</p>}
     </Modal>
   );
 }
