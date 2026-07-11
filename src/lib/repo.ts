@@ -106,8 +106,13 @@ export async function setPasswordHash(userId: string, hash: string): Promise<voi
   await query("UPDATE users SET password_hash = $2 WHERE id = $1", [userId, hash]);
 }
 
-export async function setUserActive(userId: string, active: boolean): Promise<void> {
-  await query("UPDATE users SET is_active = $2 WHERE id = $1", [userId, active]);
+/** Returns true if a user row was actually updated (false if no such user). */
+export async function setUserActive(userId: string, active: boolean): Promise<boolean> {
+  const rows = await query<{ id: string }>(
+    "UPDATE users SET is_active = $2 WHERE id = $1 RETURNING id",
+    [userId, active]
+  );
+  return rows.length > 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -384,23 +389,35 @@ export interface AuditEntry {
   ip?: string | null;
 }
 
+const AUDIT_INSERT = `INSERT INTO audit_log (correlation_id, actor_id, action, target_type, target_id, metadata, ip)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`;
+const auditParams = (e: AuditEntry) => [
+  e.correlationId ?? null,
+  e.actorId ?? null,
+  e.action,
+  e.targetType ?? null,
+  e.targetId ?? null,
+  e.metadata ? JSON.stringify(e.metadata) : null,
+  e.ip ?? null,
+];
+
+/**
+ * Append a security/admin event, atomically inside an existing transaction.
+ * THROWS on failure (rolls back the caller's tx) — use this for admin-critical
+ * state changes (e.g. chip credits) so a state change never commits without its
+ * audit record.
+ */
+export async function writeAuditTx(client: PoolClient, e: AuditEntry): Promise<void> {
+  await client.query(AUDIT_INSERT, auditParams(e));
+}
+
 /** Append a security/admin event. Best-effort: never throws into the caller —
- *  a logging failure must not break the operation being audited. */
+ *  a logging failure must not break the operation being audited. Use this for
+ *  non-critical events (auth, settings) where losing one record is acceptable;
+ *  use writeAuditTx for anything that must be atomic with a state change. */
 export async function writeAudit(e: AuditEntry): Promise<void> {
   try {
-    await query(
-      `INSERT INTO audit_log (correlation_id, actor_id, action, target_type, target_id, metadata, ip)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [
-        e.correlationId ?? null,
-        e.actorId ?? null,
-        e.action,
-        e.targetType ?? null,
-        e.targetId ?? null,
-        e.metadata ? JSON.stringify(e.metadata) : null,
-        e.ip ?? null,
-      ]
-    );
+    await query(AUDIT_INSERT, auditParams(e));
   } catch (err) {
     console.error("writeAudit failed", err);
   }

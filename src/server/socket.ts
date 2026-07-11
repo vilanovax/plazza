@@ -46,6 +46,9 @@ export function registerSocketHandlers(io: SocketIOServer): void {
 
   io.on("connection", (socket) => {
     const data = socket.data as SocketData;
+    // Join a per-user room so results (e.g. top-up acks) reach ALL of a user's
+    // sockets — including one that reconnected while a request was in flight.
+    socket.join(`user:${data.userId}`);
 
     socket.on("join", async ({ tableId, invite }: { tableId: string; invite?: string }) => {
       try {
@@ -190,7 +193,7 @@ export function registerSocketHandlers(io: SocketIOServer): void {
           const key = `topup:${data.userId}:${requestId}`;
           const c = claim<TopupOutcome>(key, 60_000);
           if (c.state === "done") {
-            socket.emit("topup_result", { ...c.result, requestId });
+            io.to(`user:${data.userId}`).emit("topup_result", { ...c.result, requestId });
             return;
           }
           if (c.state === "in_flight") return; // the original delivery emits the result
@@ -220,7 +223,9 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         }
         // Cache the authoritative outcome so a later retry reads it back.
         if (claimKey) recordResult(claimKey, outcome, 60_000);
-        socket.emit("topup_result", { ...outcome, requestId });
+        // Emit to the user's room, not just this socket, so if the client
+        // reconnected during processing the result still reaches it.
+        io.to(`user:${data.userId}`).emit("topup_result", { ...outcome, requestId });
       } catch (err) {
         // The top-up didn't apply — free the idempotency key so the user can
         // genuinely retry the same intent.
