@@ -9,7 +9,9 @@ CREATE TABLE IF NOT EXISTS user_reports (
   status       TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'reviewed', 'dismissed')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   reviewed_by  UUID REFERENCES users(id) ON DELETE SET NULL,
-  reviewed_at  TIMESTAMPTZ
+  reviewed_at  TIMESTAMPTZ,
+  -- Defense in depth (the API already rejects self-reports).
+  CONSTRAINT user_reports_not_self CHECK (reporter_id IS NULL OR reported_id <> reporter_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_reports_status   ON user_reports (status, created_at DESC);

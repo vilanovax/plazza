@@ -592,16 +592,17 @@ export async function listReports(status: string | null, limit = 100): Promise<R
   );
 }
 
-/** Resolve an open report; returns false if it was already reviewed/dismissed. */
-export async function resolveReport(
-  id: string, status: "reviewed" | "dismissed", reviewerId: string
+/** Resolve an open report inside a transaction; returns false if it was already
+ *  reviewed/dismissed (so the caller can 409 and roll back its audit write). */
+export async function resolveReportTx(
+  client: PoolClient, id: string, status: "reviewed" | "dismissed", reviewerId: string
 ): Promise<boolean> {
-  const rows = await query<{ id: string }>(
+  const res = await client.query(
     `UPDATE user_reports SET status = $2, reviewed_by = $3, reviewed_at = now()
       WHERE id = $1 AND status = 'open' RETURNING id`,
     [id, status, reviewerId]
   );
-  return rows.length > 0;
+  return (res.rowCount ?? 0) > 0;
 }
 
 export async function isBannedFromTable(tableId: string, userId: string): Promise<boolean> {

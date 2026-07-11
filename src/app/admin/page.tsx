@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
 import { Field, Input, LoadingScreen, Modal, PageHeader, PageShell, Select, Tabs } from "@/components/ui";
@@ -257,18 +257,30 @@ interface ReportRow {
   reporter_name: string | null; reported_name: string | null; table_id: string | null;
 }
 
+const REPORTS_PAGE = 100; // matches the server-side listReports cap
+
 function ReportsTab() {
   const [reports, setReports] = useState<ReportRow[]>([]);
   const [showAll, setShowAll] = useState(false);
-  const load = useCallback(
-    () => api<{ reports: ReportRow[] }>(`/api/admin/reports${showAll ? "" : "?status=open"}`).then((d) => setReports(d.reports)),
-    [showAll]
-  );
+  const [err, setErr] = useState("");
+  // Ignore a superseded load: rapid «همه»/«باز» toggles can resolve out of order.
+  const loadSeq = useRef(0);
+  const load = useCallback(() => {
+    const seq = ++loadSeq.current;
+    return api<{ reports: ReportRow[] }>(`/api/admin/reports${showAll ? "" : "?status=open"}`)
+      .then((d) => { if (seq === loadSeq.current) { setReports(d.reports); setErr(""); } })
+      .catch((e) => { if (seq === loadSeq.current) setErr((e as Error).message); });
+  }, [showAll]);
   useEffect(() => { load(); }, [load]);
 
   async function resolve(id: string, status: "reviewed" | "dismissed") {
-    await api(`/api/admin/reports/${id}/resolve`, { method: "POST", body: { status } });
-    load();
+    setErr("");
+    try {
+      await api(`/api/admin/reports/${id}/resolve`, { method: "POST", body: { status } });
+      load();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
   }
 
   return (
@@ -279,7 +291,11 @@ function ReportsTab() {
           {showAll ? "فقط باز" : "همه"}
         </button>
       </div>
+      {err && <p className="create-error">{err}</p>}
       {reports.length === 0 && <div className="admin-reports-empty">گزارشی نیست.</div>}
+      {reports.length >= REPORTS_PAGE && (
+        <div className="admin-reports-empty">فقط ۱۰۰ مورد اخیر نمایش داده می‌شود.</div>
+      )}
       <div style={{ display: "grid", gap: 6 }}>
         {reports.map((r) => (
           <div key={r.id} className="panel admin-ledger-row">

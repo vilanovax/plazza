@@ -62,7 +62,15 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   // Persistent, account-level blocks (loaded from the server): a blocked user's
   // chat is hidden and — as social features land — they can't invite/challenge.
   const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
+  // Once the user has toggled a block locally, don't let a slow initial load
+  // overwrite it; and serialize per-user toggles so a POST/DELETE can't land
+  // out of order.
+  const blocksTouched = useRef(false);
+  const blockPending = useRef<Set<string>>(new Set());
   const toggleBlock = useCallback(async (uid: string) => {
+    if (blockPending.current.has(uid)) return; // a toggle for this user is in flight
+    blockPending.current.add(uid);
+    blocksTouched.current = true;
     const wasBlocked = blockedIds.has(uid);
     // Optimistic update; revert on failure.
     setBlockedIds((prev) => { const n = new Set(prev); if (wasBlocked) n.delete(uid); else n.add(uid); return n; });
@@ -71,6 +79,8 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       else await api("/api/blocks", { method: "POST", body: { userId: uid } });
     } catch {
       setBlockedIds((prev) => { const n = new Set(prev); if (wasBlocked) n.add(uid); else n.delete(uid); return n; });
+    } finally {
+      blockPending.current.delete(uid);
     }
   }, [blockedIds]);
   // The player's own pinned quick-emotes (sent as chat with one tap).
@@ -83,7 +93,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
   useEffect(() => { api<{ profile: { emotes: string[] } }>("/api/profile").then((d) => setMyEmotes(d.profile.emotes)).catch(() => {}); }, []);
-  useEffect(() => { api<{ blocked: string[] }>("/api/blocks").then((d) => setBlockedIds(new Set(d.blocked))).catch(() => {}); }, []);
+  useEffect(() => { api<{ blocked: string[] }>("/api/blocks").then((d) => { if (!blocksTouched.current) setBlockedIds(new Set(d.blocked)); }).catch(() => {}); }, []);
 
   const seatCount = state?.config.maxSeats ?? 6;
   const viewerSeat = state?.viewerSeat ?? null;
@@ -97,9 +107,8 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   );
 
   // Execute (or invalidate) a pre-selected action as the game state changes.
-  // Clearing the one-shot selection here (a reaction to the live game-state
-  // stream) is intentional, so the set-state-in-effect rule is disabled.
-  /* eslint-disable react-hooks/set-state-in-effect */
+  // Clearing the one-shot selection here is a deliberate reaction to the live
+  // game-state stream.
   useEffect(() => {
     if (!state || viewerSeat == null || !preAction) return;
     // A pre-action only applies to the hand it was chosen in.
@@ -120,7 +129,6 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       clearPre();
     }
   }, [state, viewerSeat, preAction, act, clearPre]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const { compact, landscape } = useTableLayout();
 

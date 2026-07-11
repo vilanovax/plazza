@@ -12,6 +12,12 @@ export function error(message: string, status = 400): NextResponse {
   return NextResponse.json({ error: message }, { status });
 }
 
+/** True for a canonical UUID string — guard before feeding user input to a
+ *  `uuid`-typed query so a malformed value is a clean 400, not a Postgres 500. */
+export function isUuid(v: unknown): v is string {
+  return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
     super(message);

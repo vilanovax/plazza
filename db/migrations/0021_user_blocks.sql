@@ -9,4 +9,6 @@ CREATE TABLE IF NOT EXISTS user_blocks (
   CONSTRAINT user_blocks_not_self CHECK (blocker_id <> blocked_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_user_blocks_blocker ON user_blocks (blocker_id);
+-- Index the reverse direction (blocked_id): the PK already covers blocker_id as
+-- its leading column, and this makes the ON DELETE CASCADE from users fast.
+CREATE INDEX IF NOT EXISTS idx_user_blocks_blocked ON user_blocks (blocked_id);
