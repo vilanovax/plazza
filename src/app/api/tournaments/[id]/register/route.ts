@@ -44,6 +44,9 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     } else {
       await repo.buyIntoTournament(id, session.sub, Number(t.buy_in_chips), false);
       void tournamentManager.broadcastDetailUpdate(id);
+      // Sit & Go: once the last seat is filled, start automatically (an admin can
+      // still start early with fewer players).
+      await tournamentManager.autoStartIfFull(id, session.sub);
     }
     return json({ ok: true });
   });

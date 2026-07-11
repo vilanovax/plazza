@@ -29,6 +29,7 @@ export class TournamentManager {
   private processing = new Set<string>();
   private rebuying = new Set<string>();
   private lateRegistering = new Set<string>();
+  private starting = new Set<string>();
 
   init(): void {
     // Route table hand-end events to the owning tournament (if any).
@@ -183,7 +184,35 @@ export class TournamentManager {
   // --------------------------------------------------------------------------
   // Start
   // --------------------------------------------------------------------------
+  /** Auto-start a Sit & Go once it fills to capacity (called after each join).
+   *  Swallows "not startable" races — a concurrent start/registration is fine. */
+  async autoStartIfFull(tournamentId: string, triggeredBy: string): Promise<void> {
+    const t = await repo.getTournament(tournamentId);
+    if (!t || t.status !== "scheduled") return;
+    const registered = (await repo.listEntries(tournamentId)).filter((e) => e.status === "registered");
+    if (registered.length >= t.max_players && registered.length >= 2) {
+      try {
+        await this.start(tournamentId, triggeredBy);
+      } catch {
+        /* already started or no longer startable — nothing to do */
+      }
+    }
+  }
+
   async start(tournamentId: string, adminId: string): Promise<void> {
+    // Synchronous claim (runs before any await) so two near-simultaneous starts
+    // — e.g. an admin click racing a fill-triggered auto-start — can't both
+    // create a table for the same tournament.
+    if (this.starting.has(tournamentId)) throw new InvalidActionError("تورنومنت در حال شروع است");
+    this.starting.add(tournamentId);
+    try {
+      await this.startInner(tournamentId, adminId);
+    } finally {
+      this.starting.delete(tournamentId);
+    }
+  }
+
+  private async startInner(tournamentId: string, adminId: string): Promise<void> {
     const t = await repo.getTournament(tournamentId);
     if (!t) throw new InvalidActionError("تورنومنت یافت نشد");
     if (t.status !== "scheduled") throw new InvalidActionError("تورنومنت قابل شروع نیست");
