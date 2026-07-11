@@ -660,8 +660,11 @@ function AllInFlash({ log }: { log: LogEntry[] }) {
 function ReadyPrompt({ seats, iAmReady, onToggle }: {
   seats: SeatVM[]; iAmReady: boolean; onToggle: () => void;
 }) {
-  const seated = seats.filter((s) => s.userId && s.status !== "empty").length;
-  const readyCount = seats.filter((s) => s.ready).length;
+  // Match the engine's dealable criteria so the count reflects who can actually
+  // be dealt in (excludes sitting-out / busted seats).
+  const eligible = seats.filter((s) => s.userId && s.status !== "empty" && !s.sitOut && s.stack > 0);
+  const seated = eligible.length;
+  const readyCount = eligible.filter((s) => s.ready).length;
   return (
     <div className="panel ready-prompt">
       <div className="ready-prompt-text">

@@ -191,21 +191,19 @@ export class TournamentManager {
     if (!t || t.status !== "scheduled") return;
     const registered = (await repo.listEntries(tournamentId)).filter((e) => e.status === "registered");
     if (registered.length >= t.max_players && registered.length >= 2) {
-      try {
-        await this.start(tournamentId, null);
-      } catch (err) {
-        // A concurrent start/registration race is expected and benign; anything
-        // else is a real failure that must surface, not be swallowed.
-        if (!(err instanceof InvalidActionError)) throw err;
-      }
+      // No catch: the only benign race (a start already in progress) is handled
+      // by start() returning silently, so any real failure propagates instead of
+      // leaving a full tournament silently stuck in "scheduled".
+      await this.start(tournamentId, null);
     }
   }
 
   async start(tournamentId: string, adminId: string | null): Promise<void> {
     // Synchronous claim (runs before any await) so two near-simultaneous starts
     // — e.g. an admin click racing a fill-triggered auto-start — can't both
-    // create a table for the same tournament.
-    if (this.starting.has(tournamentId)) throw new InvalidActionError("تورنومنت در حال شروع است");
+    // create a table. The loser returns silently (the winner does the work);
+    // real failures from startInner still throw to the caller.
+    if (this.starting.has(tournamentId)) return;
     this.starting.add(tournamentId);
     try {
       await this.startInner(tournamentId, adminId);

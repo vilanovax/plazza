@@ -376,6 +376,16 @@ export async function getTable(id: string): Promise<PokerTableRow | null> {
   return one<PokerTableRow>("SELECT * FROM poker_tables WHERE id = $1", [id]);
 }
 
+/** Whether this table has ever dealt a hand (persists the first-hand ready gate
+ *  across restarts, so an established table isn't re-gated after a reboot). */
+export async function tableHasHands(tableId: string): Promise<boolean> {
+  const rows = await query<{ exists: boolean }>(
+    "SELECT EXISTS(SELECT 1 FROM hands WHERE table_id = $1) AS exists",
+    [tableId]
+  );
+  return rows[0]?.exists === true;
+}
+
 // ---------------------------------------------------------------------------
 // Audit log (append-only; see migration 0017)
 // ---------------------------------------------------------------------------

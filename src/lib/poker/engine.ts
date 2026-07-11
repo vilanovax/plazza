@@ -191,13 +191,16 @@ export class HoldemGame {
   }
 
   canStartHand(): boolean {
-    if (this.phase !== "waiting" && this.phase !== "hand_complete") return false;
-    const dealable = this.dealableSeats();
-    if (dealable.length < 2) return false;
-    // The table's very FIRST hand waits until at least two seated players have
-    // tapped "ready"; after play has begun (handNo > 0) hands auto-start.
-    if (this.handNo === 0) return dealable.filter((s) => s.ready).length >= 2;
-    return true;
+    return this.phase === "waiting" || this.phase === "hand_complete"
+      ? this.dealableSeats().length >= 2
+      : false;
+  }
+
+  /** How many dealable (seated, funded, not sitting-out) seats are marked ready.
+   *  The first-hand "ready" gate is applied by the game manager, which knows the
+   *  table type (tournaments never gate); the engine only exposes the count. */
+  readyDealableCount(): number {
+    return this.dealableSeats().filter((s) => s.ready).length;
   }
 
   /** Toggle a player's readiness (only meaningful before the first hand). */

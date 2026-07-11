@@ -43,6 +43,9 @@ interface TableRuntime {
   isTournament: boolean;
   /** When true, no new hands are dealt (e.g. a scheduled tournament break). */
   paused?: boolean;
+  /** True once the table has ever dealt a hand — lifts the first-hand "ready"
+   *  gate (cash tables only). Seeded from the DB so a restart doesn't re-gate. */
+  hasDealtFirstHand: boolean;
   /** Cached cosmetic profiles for seated players (attached to broadcasts). */
   profiles: Map<string, { avatar: string; title: string; tagline: string; chipColor: string; cardBack: string }>;
 }
@@ -126,6 +129,9 @@ export class GameManager {
       const isTournament = row.tournament_id != null;
       const log = isTournament ? [] : await repo.recentTableEvents(tableId, LOG_CAP);
       const logSeq = log.reduce((max, e) => Math.max(max, e.id), 0);
+      // Tournaments never use the ready gate; a cash table that has already dealt
+      // a hand (per the DB) shouldn't be re-gated after a restart.
+      const hasDealtFirstHand = isTournament ? true : await repo.tableHasHands(tableId);
       const rt: TableRuntime = {
         game,
         tableId,
@@ -134,6 +140,7 @@ export class GameManager {
         stateSeq: 0,
         sitOutTimers: new Map(),
         isTournament,
+        hasDealtFirstHand,
         profiles: new Map(),
       };
       for (const uid of activeSeatUserIds) {
@@ -531,9 +538,11 @@ export class GameManager {
   private maybeStartHand(rt: TableRuntime): void {
     if (rt.paused) return; // e.g. a scheduled tournament break — no new hands
     if (rt.nextHandTimer || rt.actionTimer) return;
-    if (rt.game.canStartHand()) {
-      rt.nextHandTimer = setTimeout(() => this.startHand(rt), NEXT_HAND_DELAY_MS);
-    }
+    if (!rt.game.canStartHand()) return;
+    // First-hand ready gate — cash tables only, before the table's opening hand:
+    // wait until at least two dealable players have tapped "ready".
+    if (!rt.isTournament && !rt.hasDealtFirstHand && rt.game.readyDealableCount() < 2) return;
+    rt.nextHandTimer = setTimeout(() => this.startHand(rt), NEXT_HAND_DELAY_MS);
   }
 
   /** Pause/resume dealing new hands (scheduled tournament breaks). The current
@@ -561,6 +570,7 @@ export class GameManager {
     if (rt.paused) return; // a break may have begun after this hand was queued
     if (!rt.game.canStartHand()) return;
     rt.game.startHand();
+    rt.hasDealtFirstHand = true; // the ready gate applies only to the opening hand
     // Snapshot who was dealt into this hand (for per-player stats).
     rt.handParticipants = rt.game.seats
       .filter((s) => s.userId && (s.holeCards?.length ?? 0) === 2)
