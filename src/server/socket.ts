@@ -11,7 +11,7 @@ import { gameManager } from "./gameManager";
 import { tournamentManager } from "./tournamentManager";
 import * as repo from "../lib/repo";
 import { rateLimit } from "../lib/rateLimit";
-import { claimOnce, releaseClaim } from "../lib/idempotency";
+import { claim, recordResult, releaseClaim } from "../lib/idempotency";
 
 interface SocketData {
   userId: string;
@@ -180,15 +180,21 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         const userGate = rateLimit(`topup:${data.userId}`, 5, 10_000);
         if (!userGate.ok) throw new InvalidActionError("درخواست‌های زیاد؛ کمی صبر کنید");
         // True idempotency: the client sends a stable requestId per top-up
-        // intent, so a double-click or a socket retry that re-delivers the same
-        // id is applied at most once (a duplicate is acked without re-charging).
+        // intent. The first delivery processes and caches its outcome; a retry
+        // that arrives after completion gets the SAME authoritative result back;
+        // a duplicate that races the original while it's still in flight is
+        // dropped, because the original will emit the outcome. This removes the
+        // duplicate-vs-original ack race entirely.
+        type TopupOutcome = { status: "approved" | "pending"; amount: number };
         if (typeof requestId === "string" && requestId) {
           const key = `topup:${data.userId}:${requestId}`;
-          if (!claimOnce(key, 60_000)) {
-            socket.emit("topup_result", { status: "duplicate", amount: amt, requestId });
+          const c = claim<TopupOutcome>(key, 60_000);
+          if (c.state === "done") {
+            socket.emit("topup_result", { ...c.result, requestId });
             return;
           }
-          claimKey = key;
+          if (c.state === "in_flight") return; // the original delivery emits the result
+          claimKey = key; // "new" — we own it
         }
         // Load the runtime ONCE up front and reuse it for both the tournament
         // guard and the seat lookup. Reading getRuntime() twice around an await
@@ -204,13 +210,17 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         }
         const seat = rt.game.seats.find((s) => s.userId === data.userId);
         if (!seat) throw new InvalidActionError("شما سر این میز نیستید");
+        let outcome: TopupOutcome;
         if (settings.allow_self_topup) {
           await gameManager.topUp(tableId, data.userId, amt);
-          socket.emit("topup_result", { status: "approved", amount: amt, requestId });
+          outcome = { status: "approved", amount: amt };
         } else {
           await repo.createTopup(data.userId, tableId, seat.seatIndex, amt);
-          socket.emit("topup_result", { status: "pending", amount: amt, requestId });
+          outcome = { status: "pending", amount: amt };
         }
+        // Cache the authoritative outcome so a later retry reads it back.
+        if (claimKey) recordResult(claimKey, outcome, 60_000);
+        socket.emit("topup_result", { ...outcome, requestId });
       } catch (err) {
         // The top-up didn't apply — free the idempotency key so the user can
         // genuinely retry the same intent.

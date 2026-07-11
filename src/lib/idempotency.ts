@@ -1,38 +1,55 @@
 /**
- * Tiny in-memory idempotency store. A sensitive command carries a client-
- * generated request id; the first time we see it we "claim" it and process the
- * command, and any retry with the same id is a no-op. Adequate because the whole
- * app runs in one custom-server process — back it with Redis for multi-instance.
+ * Tiny in-memory idempotency store with result caching. A sensitive command
+ * carries a client-generated request id:
+ *   - the FIRST call claims the key and processes the command, then records its
+ *     result;
+ *   - a retry that arrives AFTER completion gets the cached result back (so the
+ *     caller can re-send the authoritative outcome instead of a bare
+ *     "duplicate");
+ *   - a retry that races the original while it is still in flight is told to
+ *     drop, because the original will emit the outcome.
  *
- * Bucket growth must be bounded by an upstream per-user throttle, since the
- * request id is client-controlled.
+ * Adequate because the whole app runs in one custom-server process (claim() is
+ * synchronous, so it's atomic under Node's single thread) — back it with Redis
+ * for multi-instance. Bucket growth must be bounded by an upstream per-user
+ * throttle, since the request id is client-controlled.
  */
-interface Claim {
+interface Entry<T> {
   expiresAt: number;
+  hasResult: boolean;
+  result?: T;
 }
 
-const claims = new Map<string, Claim>();
+const store = new Map<string, Entry<unknown>>();
 
-/**
- * Atomically claim `key`. Returns true the first time (caller should process the
- * command) and false for any subsequent call within `ttlMs` (a duplicate/retry).
- */
-export function claimOnce(key: string, ttlMs: number): boolean {
+export type ClaimState<T> =
+  | { state: "new" } // caller owns it and must process the command
+  | { state: "in_flight" } // another call is processing; caller should drop
+  | { state: "done"; result: T }; // already completed; caller returns cached result
+
+/** Atomically claim `key`, or report that it is in flight / already done. */
+export function claim<T>(key: string, ttlMs: number): ClaimState<T> {
   const now = Date.now();
-  const existing = claims.get(key);
-  if (existing && existing.expiresAt > now) return false;
-  claims.set(key, { expiresAt: now + ttlMs });
-  return true;
+  const e = store.get(key) as Entry<T> | undefined;
+  if (e && e.expiresAt > now) {
+    return e.hasResult ? { state: "done", result: e.result as T } : { state: "in_flight" };
+  }
+  store.set(key, { expiresAt: now + ttlMs, hasResult: false });
+  return { state: "new" };
 }
 
-/** Release a claim early — used to roll back when the command ultimately fails,
- *  so a genuine retry of a failed operation is allowed to proceed. */
+/** Record the result for a claimed key so retries can read it back. */
+export function recordResult<T>(key: string, result: T, ttlMs: number): void {
+  store.set(key, { expiresAt: Date.now() + ttlMs, hasResult: true, result });
+}
+
+/** Release a claim (command failed) so a genuine retry is allowed to proceed. */
 export function releaseClaim(key: string): void {
-  claims.delete(key);
+  store.delete(key);
 }
 
-// Opportunistically evict expired claims so the map can't grow unbounded.
+// Opportunistically evict expired entries so the map can't grow unbounded.
 setInterval(() => {
   const now = Date.now();
-  for (const [k, c] of claims) if (c.expiresAt <= now) claims.delete(k);
+  for (const [k, e] of store) if (e.expiresAt <= now) store.delete(k);
 }, 60_000).unref?.();

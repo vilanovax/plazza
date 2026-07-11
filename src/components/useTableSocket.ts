@@ -5,7 +5,9 @@ import type { PublicGameState, PlayerAction } from "@/lib/poker/types";
 import type { TournamentTableBanner } from "@/lib/tournament/tableBanner";
 
 export interface TopupResult {
-  status: "approved" | "pending" | "duplicate";
+  // The server only ever emits an authoritative outcome (a duplicate retry gets
+  // the original's cached result), so there is no separate "duplicate" status.
+  status: "approved" | "pending";
   amount: number;
   requestId?: string;
 }

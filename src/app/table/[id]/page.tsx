@@ -722,9 +722,7 @@ function ActionBar({ compact, state, mySeat, act, topup, topupResult, leaveSeat,
     setSeenAck(ackId);
     setTopupReqId("");
     setTopupMsg(
-      topupResult.status === "pending" ? "درخواست تاپ‌آپ برای تأیید مدیر ثبت شد" :
-      topupResult.status === "duplicate" ? "این درخواست قبلاً ثبت شده بود" :
-      "تاپ‌آپ اعمال شد"
+      topupResult.status === "pending" ? "درخواست تاپ‌آپ برای تأیید مدیر ثبت شد" : "تاپ‌آپ اعمال شد"
     );
   }
 
