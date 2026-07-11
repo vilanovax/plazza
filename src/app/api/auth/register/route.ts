@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { handler, error, json } from "@/lib/api";
 import { hashPassword, setSessionCookie } from "@/lib/auth";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
@@ -24,6 +25,8 @@ export async function POST(req: Request) {
     const hash = await hashPassword(String(password));
     const user = await repo.createUser(String(username), hash, String(displayName || username), "player");
     await setSessionCookie({ sub: user.id, username: user.username, role: user.role });
+    await repo.writeAudit({ correlationId: randomUUID(), actorId: user.id, action: "auth.register",
+      targetType: "user", targetId: user.id, metadata: { username: user.username }, ip });
     return json({ id: user.id, username: user.username, displayName: user.display_name, role: user.role });
   });
 }

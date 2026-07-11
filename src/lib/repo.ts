@@ -371,6 +371,78 @@ export async function getTable(id: string): Promise<PokerTableRow | null> {
   return one<PokerTableRow>("SELECT * FROM poker_tables WHERE id = $1", [id]);
 }
 
+// ---------------------------------------------------------------------------
+// Audit log (append-only; see migration 0017)
+// ---------------------------------------------------------------------------
+export interface AuditEntry {
+  correlationId?: string | null;
+  actorId?: string | null;
+  action: string;
+  targetType?: string | null;
+  targetId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  ip?: string | null;
+}
+
+/** Append a security/admin event. Best-effort: never throws into the caller —
+ *  a logging failure must not break the operation being audited. */
+export async function writeAudit(e: AuditEntry): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO audit_log (correlation_id, actor_id, action, target_type, target_id, metadata, ip)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [
+        e.correlationId ?? null,
+        e.actorId ?? null,
+        e.action,
+        e.targetType ?? null,
+        e.targetId ?? null,
+        e.metadata ? JSON.stringify(e.metadata) : null,
+        e.ip ?? null,
+      ]
+    );
+  } catch (err) {
+    console.error("writeAudit failed", err);
+  }
+}
+
+/** Search the audit log by actor, action, and/or time window (newest first). */
+export async function searchAudit(filter: {
+  actorId?: string;
+  action?: string;
+  correlationId?: string;
+  since?: string;
+  until?: string;
+  limit?: number;
+}): Promise<AuditRow[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const add = (cond: string, val: unknown) => { params.push(val); where.push(cond.replace("$?", `$${params.length}`)); };
+  if (filter.actorId) add("actor_id = $?", filter.actorId);
+  if (filter.action) add("action = $?", filter.action);
+  if (filter.correlationId) add("correlation_id = $?", filter.correlationId);
+  if (filter.since) add("created_at >= $?", filter.since);
+  if (filter.until) add("created_at <= $?", filter.until);
+  const limit = Math.min(500, Math.max(1, filter.limit ?? 100));
+  return query<AuditRow>(
+    `SELECT * FROM audit_log ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+     ORDER BY created_at DESC, id DESC LIMIT ${limit}`,
+    params
+  );
+}
+
+export interface AuditRow {
+  id: string;
+  correlation_id: string | null;
+  actor_id: string | null;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  metadata: Record<string, unknown> | null;
+  ip: string | null;
+  created_at: string;
+}
+
 export async function closeTable(id: string): Promise<void> {
   await query("UPDATE poker_tables SET status = 'closed', closed_at = now() WHERE id = $1", [id]);
 }
