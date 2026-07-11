@@ -25,7 +25,9 @@ test.describe("Cash table", () => {
     await page.goto(`/table/${id}`);
     await expect(page.getByText("متصل")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(name)).toBeVisible();
-    await expect(page.getByText("در انتظار بازیکنان")).toBeVisible();
+    // The phase text also appears in the sr-only aria-live region, so scope to
+    // the visible header meta to avoid a strict-mode multi-match.
+    await expect(page.locator(".table-header-meta")).toContainText("در انتظار بازیکنان");
   });
 
   test("admin can sit at a newly created table", async ({ page }) => {

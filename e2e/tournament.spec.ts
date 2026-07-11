@@ -23,7 +23,9 @@ test.describe("Tournament", () => {
 
     await page.goto(`/tournament/${id}`);
     await expect(page.getByRole("heading", { name: `🏆 ${name}` })).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("در انتظار")).toBeVisible();
+    // The status renders in both the hero badge and the info grid, so scope to
+    // the hero status badge to avoid a strict-mode multi-match.
+    await expect(page.locator(".tournament-hero-status")).toHaveText("در انتظار");
     await expect(page.getByText("جدول رده‌بندی")).toBeVisible();
   });
 
@@ -87,7 +89,8 @@ test.describe("Tournament", () => {
     expect(start.ok()).toBeTruthy();
 
     await adminPage.goto(`/tournament/${tournamentId}`);
-    await expect(adminPage.getByText("در حال اجرا")).toBeVisible({ timeout: 20_000 });
+    // Scope to the hero status badge (status also shows in the info grid).
+    await expect(adminPage.locator(".tournament-hero-status")).toHaveText("در حال اجرا", { timeout: 20_000 });
     await expect(adminPage.getByRole("link", { name: /ورود به میز تورنومنت/ })).toBeVisible();
 
     await adminContext.close();
