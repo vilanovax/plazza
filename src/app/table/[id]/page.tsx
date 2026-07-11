@@ -44,7 +44,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       ? new URLSearchParams(window.location.search).get("invite") ?? undefined
       : undefined
   );
-  const { state, tourney, connected, error, clearError, topupResult, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat } = useTableSocket(id, invite);
+  const { state, tourney, connected, error, clearError, topupResult, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, ban, rebuy, forfeitTournament, chat } = useTableSocket(id, invite);
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [forfeitOpen, setForfeitOpen] = useState(false);
@@ -294,6 +294,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           name={statsFor.name}
           canKick={me?.role === "admin" && statsFor.userId !== me?.id}
           onKick={() => { kick(statsFor.seatIndex, statsFor.userId); setStatsFor(null); }}
+          onBan={() => { ban(statsFor.userId); setStatsFor(null); }}
           onClose={() => setStatsFor(null)}
         />
       )}
@@ -825,8 +826,8 @@ function StatChip({ label, value, tone = "default" }: { label: string; value: st
   );
 }
 
-function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
-  tableId: string; userId: string; name: string; canKick?: boolean; onKick?: () => void; onClose: () => void;
+function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onBan, onClose }: {
+  tableId: string; userId: string; name: string; canKick?: boolean; onKick?: () => void; onBan?: () => void; onClose: () => void;
 }) {
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [err, setErr] = useState("");
@@ -937,6 +938,15 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onClose }: {
             onClick={() => { if (confirm(`${name} از میز حذف شود؟`)) onKick(); }}
           >
             حذف از میز
+          </button>
+        )}
+        {canKick && onBan && (
+          <button
+            type="button"
+            className="btn btn-danger stats-kick-btn"
+            onClick={() => { if (confirm(`${name} از این میز مسدود شود؟ دیگر نمی‌تواند برگردد.`)) onBan(); }}
+          >
+            مسدودسازی از میز
           </button>
         )}
       </div>

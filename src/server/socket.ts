@@ -3,6 +3,7 @@
  * in the handshake; unauthenticated sockets are rejected. Clients send intents
  * (sit/leave/action/topup) and receive personalised `state` broadcasts.
  */
+import { randomUUID } from "node:crypto";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 import { sessionFromCookieHeader } from "../lib/auth";
 import { InvalidActionError } from "../lib/poker/engine";
@@ -59,6 +60,11 @@ export function registerSocketHandlers(io: SocketIOServer): void {
         if (!row || row.status !== "open") throw new InvalidActionError("میز یافت نشد");
         if (row.is_private && data.role !== "admin" && (!row.invite_code || invite !== row.invite_code)) {
           throw new InvalidActionError("این میز خصوصی است؛ برای ورود به لینک دعوت نیاز دارید");
+        }
+        // Banned players can't (re)join; admins are exempt. sit() requires a
+        // prior successful join, so gating here covers sitting too.
+        if (data.role !== "admin" && (await repo.isBannedFromTable(tableId, data.userId))) {
+          throw new InvalidActionError("شما از این میز مسدود شده‌اید");
         }
         if (data.tableId && data.tableId !== tableId) {
           gameManager.unregisterSocket(data.tableId, socket);
@@ -148,6 +154,19 @@ export function registerSocketHandlers(io: SocketIOServer): void {
     socket.on("kick", async ({ tableId, seatIndex, userId }: { tableId: string; seatIndex: number; userId: string }) => {
       try {
         await gameManager.kick(tableId, data.role, seatIndex, userId);
+      } catch (err) {
+        fail(socket, err);
+      }
+    });
+
+    // Admin-only: ban a player from the table (kick + block rejoining).
+    socket.on("ban", async ({ tableId, userId }: { tableId: string; userId: string }) => {
+      try {
+        await gameManager.ban(tableId, data.role, userId, data.userId);
+        await repo.writeAudit({
+          correlationId: randomUUID(), actorId: data.userId, action: "admin.table_ban",
+          targetType: "user", targetId: userId, metadata: { tableId },
+        });
       } catch (err) {
         fail(socket, err);
       }

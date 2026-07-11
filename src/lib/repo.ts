@@ -496,6 +496,33 @@ export async function recentTableEvents(tableId: string, limit = 60): Promise<Lo
   }));
 }
 
+// ---------------------------------------------------------------------------
+// Table bans (persistent; see migration 0020)
+// ---------------------------------------------------------------------------
+export async function banFromTable(tableId: string, userId: string, bannedBy: string): Promise<void> {
+  await query(
+    `INSERT INTO table_bans (table_id, user_id, banned_by) VALUES ($1, $2, $3)
+     ON CONFLICT (table_id, user_id) DO NOTHING`,
+    [tableId, userId, bannedBy]
+  );
+}
+
+export async function unbanFromTable(tableId: string, userId: string): Promise<boolean> {
+  const rows = await query<{ user_id: string }>(
+    "DELETE FROM table_bans WHERE table_id = $1 AND user_id = $2 RETURNING user_id",
+    [tableId, userId]
+  );
+  return rows.length > 0;
+}
+
+export async function isBannedFromTable(tableId: string, userId: string): Promise<boolean> {
+  const rows = await query<{ user_id: string }>(
+    "SELECT user_id FROM table_bans WHERE table_id = $1 AND user_id = $2",
+    [tableId, userId]
+  );
+  return rows.length > 0;
+}
+
 export async function closeTable(id: string): Promise<void> {
   await query("UPDATE poker_tables SET status = 'closed', closed_at = now() WHERE id = $1", [id]);
 }

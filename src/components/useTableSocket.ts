@@ -28,6 +28,7 @@ export interface TableSocket {
   sitOut: (out: boolean) => void;
   requestExtraTime: () => void;
   kick: (seatIndex: number, userId: string) => void;
+  ban: (userId: string) => void;
   rebuy: () => void;
   forfeitTournament: () => void;
   chat: (text: string) => void;
@@ -81,11 +82,12 @@ export function useTableSocket(tableId: string, invite?: string): TableSocket {
   const sitOut = useCallback((out: boolean) => sockRef.current?.emit("sit_out", { tableId, out }), [tableId]);
   const requestExtraTime = useCallback(() => sockRef.current?.emit("extra_time", { tableId }), [tableId]);
   const kick = useCallback((seatIndex: number, userId: string) => sockRef.current?.emit("kick", { tableId, seatIndex, userId }), [tableId]);
+  const ban = useCallback((userId: string) => sockRef.current?.emit("ban", { tableId, userId }), [tableId]);
   const rebuy = useCallback(() => sockRef.current?.emit("rebuy", { tableId }), [tableId]);
   const forfeitTournament = useCallback(() => sockRef.current?.emit("forfeit_tournament", { tableId }), [tableId]);
   const chat = useCallback((text: string) => sockRef.current?.emit("chat", { tableId, text }), [tableId]);
   const clearError = useCallback(() => setError(null), []);
   const clearTopupResult = useCallback(() => setTopupResult(null), []);
 
-  return { state, tourney, connected, error, clearError, topupResult, clearTopupResult, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat };
+  return { state, tourney, connected, error, clearError, topupResult, clearTopupResult, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, ban, rebuy, forfeitTournament, chat };
 }

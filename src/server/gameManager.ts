@@ -472,6 +472,28 @@ export class GameManager {
     await this.afterMutation(rt);
   }
 
+  /** Admin bans a player from this table (kick + persist so they can't rejoin). */
+  async ban(tableId: string, actorRole: string, userId: string, bannedBy: string): Promise<void> {
+    if (actorRole !== "admin") throw new InvalidActionError("فقط مدیر می‌تواند بازیکن را مسدود کند");
+    const rt = this.tables.get(tableId);
+    if (rt?.isTournament) throw new InvalidActionError("در تورنومنت امکان مسدودسازی میز نیست");
+    if (!userId) throw new InvalidActionError("بازیکن نامعتبر است");
+    // Persist the ban first so a rejoin race can't slip in before it lands.
+    await repo.banFromTable(tableId, userId, bannedBy);
+    // If they're seated, remove them (cashing their stack back to the bank).
+    if (rt) {
+      const seat = rt.game.seats.find((s) => s.userId === userId);
+      if (seat) {
+        const name = await this.removeSeatCore(rt, userId, true);
+        if (name !== null) {
+          this.pushLog(rt, `${name} توسط مدیر از میز مسدود شد`);
+          await this.afterMutation(rt);
+          return;
+        }
+      }
+    }
+  }
+
   /** Player asks for extra think-time on their turn (time bank). */
   async requestExtraTime(tableId: string, userId: string): Promise<void> {
     const rt = this.tables.get(tableId);
