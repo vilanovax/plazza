@@ -523,6 +523,33 @@ export async function banFromTableTx(
   );
 }
 
+// ---------------------------------------------------------------------------
+// User blocks (persistent, account-level; see migration 0021)
+// ---------------------------------------------------------------------------
+export async function blockUser(blockerId: string, blockedId: string): Promise<void> {
+  if (blockerId === blockedId) return;
+  await query(
+    `INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [blockerId, blockedId]
+  );
+}
+
+export async function unblockUser(blockerId: string, blockedId: string): Promise<boolean> {
+  const rows = await query<{ blocked_id: string }>(
+    "DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2 RETURNING blocked_id",
+    [blockerId, blockedId]
+  );
+  return rows.length > 0;
+}
+
+export async function listBlockedIds(blockerId: string): Promise<string[]> {
+  const rows = await query<{ blocked_id: string }>(
+    "SELECT blocked_id FROM user_blocks WHERE blocker_id = $1",
+    [blockerId]
+  );
+  return rows.map((r) => r.blocked_id);
+}
+
 export async function isBannedFromTable(tableId: string, userId: string): Promise<boolean> {
   const rows = await query<{ user_id: string }>(
     "SELECT user_id FROM table_bans WHERE table_id = $1 AND user_id = $2",
