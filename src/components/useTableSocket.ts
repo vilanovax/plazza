@@ -40,6 +40,8 @@ export function useTableSocket(tableId: string, invite?: string): TableSocket {
   const [error, setError] = useState<string | null>(null);
   const [topupResult, setTopupResult] = useState<TopupResult | null>(null);
   const sockRef = useRef<Socket | null>(null);
+  // Highest broadcast seq applied, so a delayed/out-of-order "state" is dropped.
+  const lastSeq = useRef<number | null>(null);
 
   useEffect(() => {
     const socket = io({ path: "/api/socket", withCredentials: true, transports: ["websocket", "polling"] });
@@ -47,11 +49,20 @@ export function useTableSocket(tableId: string, invite?: string): TableSocket {
 
     socket.on("connect", () => {
       setConnected(true);
+      // The server's seq resets on restart, so forget it on every (re)connect.
+      lastSeq.current = null;
       socket.emit("join", { tableId, invite });
     });
     socket.on("disconnect", () => setConnected(false));
     socket.on("connect_error", (e) => setError(e.message === "unauthorized" ? "احراز هویت ناموفق" : "اتصال برقرار نشد"));
-    socket.on("state", (s: PublicGameState) => setState(s));
+    socket.on("state", (s: PublicGameState) => {
+      // Keep only the newest state; drop a stale or out-of-order broadcast.
+      if (typeof s.seq === "number") {
+        if (lastSeq.current !== null && s.seq <= lastSeq.current) return;
+        lastSeq.current = s.seq;
+      }
+      setState(s);
+    });
     socket.on("tournament_update", (t: TournamentTableBanner | null) => setTourney(t));
     socket.on("action_error", ({ message }: { message: string }) => setError(message));
     socket.on("topup_result", (r: TopupResult) => setTopupResult(r));

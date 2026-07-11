@@ -34,6 +34,8 @@ interface TableRuntime {
   /** Rolling table event feed. */
   log: LogEntry[];
   logSeq: number;
+  /** Monotonic broadcast counter so clients can drop stale/out-of-order state. */
+  stateSeq: number;
   /** Per-user auto-removal timers for players who sit out too long. */
   sitOutTimers: Map<string, NodeJS.Timeout>;
   /** True when this table backs a tournament (disables voluntary sit-out). */
@@ -128,6 +130,7 @@ export class GameManager {
         tableId,
         log,
         logSeq,
+        stateSeq: 0,
         sitOutTimers: new Map(),
         isTournament,
         profiles: new Map(),
@@ -813,10 +816,12 @@ export class GameManager {
     const sockets = this.roomSockets.get(tableId);
     if (!sockets?.size) return;
     const log = rt.log;
+    const seq = ++rt.stateSeq; // one bump per broadcast; same seq for all viewers
     for (const s of sockets) {
       const uid = (s.data as { userId?: string }).userId ?? null;
       const ps = rt.game.publicState(uid);
       ps.log = log;
+      ps.seq = seq;
       this.attachProfiles(ps, rt, uid);
       s.emit("state", ps);
     }

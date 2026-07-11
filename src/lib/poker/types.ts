@@ -158,4 +158,7 @@ export interface PublicGameState extends Omit<GameState, "seats"> {
   viewerSeat: number | null;
   /** Recent table events (attached by the game manager on broadcast). */
   log?: LogEntry[];
+  /** Monotonic per-table broadcast sequence, so a client can drop a stale or
+   *  out-of-order state and keep only the newest (resets on server restart). */
+  seq?: number;
 }
