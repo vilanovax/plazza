@@ -44,12 +44,13 @@ async function main() {
       // responsible for its own atomicity; we still record it once it succeeds.
       const noTx = /--\s*migrate:no-transaction/i.test(sql);
       if (noTx) {
-        // Each statement runs on its own: a multi-statement query string is an
-        // implicit transaction block, which CREATE INDEX CONCURRENTLY forbids.
-        // (Simple `;` split — fine for the CONCURRENTLY index case; don't mix
-        // with function bodies that contain semicolons.)
+        // Each statement runs on its own connection query: a multi-statement
+        // query string is an implicit transaction block, which CREATE INDEX
+        // CONCURRENTLY forbids. Statements are separated by an explicit `--;;`
+        // delimiter line (not by guessing at `;`, which is legal inside
+        // dollar-quoted bodies, string literals, and comments).
         const statements = sql
-          .split(";")
+          .split(/^[ \t]*--;;[ \t]*$/m)
           .map((s) => s.trim())
           .filter((s) => s.length > 0 && !/^(?:--[^\n]*\n?)*$/.test(s));
         try {
