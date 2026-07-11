@@ -291,7 +291,7 @@ function ReportsTab() {
           {showAll ? "فقط باز" : "همه"}
         </button>
       </div>
-      {err && <p className="create-error">{err}</p>}
+      {err && <p className="create-error" role="alert">{err}</p>}
       {reports.length === 0 && <div className="admin-reports-empty">گزارشی نیست.</div>}
       {reports.length >= REPORTS_PAGE && (
         <div className="admin-reports-empty">فقط ۱۰۰ مورد اخیر نمایش داده می‌شود.</div>

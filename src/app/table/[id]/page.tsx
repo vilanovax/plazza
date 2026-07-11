@@ -62,22 +62,23 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   // Persistent, account-level blocks (loaded from the server): a blocked user's
   // chat is hidden and — as social features land — they can't invite/challenge.
   const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
-  // Once the user has toggled a block locally, don't let a slow initial load
-  // overwrite it; and serialize per-user toggles so a POST/DELETE can't land
-  // out of order.
-  const blocksTouched = useRef(false);
+  // Local block decisions (uid → intended blocked state) so a slow initial load
+  // reconciles with — rather than clobbers — the user's own toggles; and a
+  // per-user in-flight guard so a POST/DELETE can't land out of order.
+  const blockOverrides = useRef<Map<string, boolean>>(new Map());
   const blockPending = useRef<Set<string>>(new Set());
   const toggleBlock = useCallback(async (uid: string) => {
     if (blockPending.current.has(uid)) return; // a toggle for this user is in flight
     blockPending.current.add(uid);
-    blocksTouched.current = true;
     const wasBlocked = blockedIds.has(uid);
+    blockOverrides.current.set(uid, !wasBlocked);
     // Optimistic update; revert on failure.
     setBlockedIds((prev) => { const n = new Set(prev); if (wasBlocked) n.delete(uid); else n.add(uid); return n; });
     try {
       if (wasBlocked) await api(`/api/blocks/${uid}`, { method: "DELETE" });
       else await api("/api/blocks", { method: "POST", body: { userId: uid } });
     } catch {
+      blockOverrides.current.delete(uid);
       setBlockedIds((prev) => { const n = new Set(prev); if (wasBlocked) n.add(uid); else n.delete(uid); return n; });
     } finally {
       blockPending.current.delete(uid);
@@ -93,7 +94,13 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
   useEffect(() => { api<{ profile: { emotes: string[] } }>("/api/profile").then((d) => setMyEmotes(d.profile.emotes)).catch(() => {}); }, []);
-  useEffect(() => { api<{ blocked: string[] }>("/api/blocks").then((d) => { if (!blocksTouched.current) setBlockedIds(new Set(d.blocked)); }).catch(() => {}); }, []);
+  useEffect(() => { api<{ blocked: string[] }>("/api/blocks").then((d) => setBlockedIds(() => {
+    // Start from the server list, then layer any local toggles back on so a
+    // slow response can't drop existing blocks or undo an in-flight one.
+    const merged = new Set(d.blocked);
+    for (const [uid, blocked] of blockOverrides.current) { if (blocked) merged.add(uid); else merged.delete(uid); }
+    return merged;
+  })).catch(() => {}); }, []);
 
   const seatCount = state?.config.maxSeats ?? 6;
   const viewerSeat = state?.viewerSeat ?? null;
