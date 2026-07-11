@@ -11,6 +11,7 @@ import { gameManager } from "./gameManager";
 import { tournamentManager } from "./tournamentManager";
 import * as repo from "../lib/repo";
 import { rateLimit } from "../lib/rateLimit";
+import { claimOnce, releaseClaim } from "../lib/idempotency";
 
 interface SocketData {
   userId: string;
@@ -166,20 +167,29 @@ export function registerSocketHandlers(io: SocketIOServer): void {
     });
 
     // Top-up: applied immediately if self-top-up is enabled, else queued for admin.
-    socket.on("topup", async ({ tableId, amount }: { tableId: string; amount: number }) => {
+    socket.on("topup", async ({ tableId, amount, requestId }: { tableId: string; amount: number; requestId?: string }) => {
+      // Set once we've claimed the idempotency key, so a failure below can
+      // release it and let a genuine retry (same requestId) through.
+      let claimKey: string | null = null;
       try {
         const amt = Math.floor(amount);
         if (amt <= 0) throw new InvalidActionError("مبلغ نامعتبر است");
-        // Two gates, user-gate first so bucket creation stays bounded per user
-        // (the intent key below mixes client-controlled table/amount, so on its
-        // own it could be varied to bypass the throttle and flood the bucket map).
-        //   1) Per-user throttle: caps top-up rate regardless of table/amount.
+        // Per-user throttle FIRST: bounds how fast a user can hit this handler
+        // regardless of amount/requestId (both client-controlled), so neither
+        // the rate-limit map nor the idempotency map can be flooded.
         const userGate = rateLimit(`topup:${data.userId}`, 5, 10_000);
         if (!userGate.ok) throw new InvalidActionError("درخواست‌های زیاد؛ کمی صبر کنید");
-        //   2) Intent dedup: rejects an identical duplicate (double-click / retry)
-        //      while a genuinely different amount still passes the user gate.
-        const dupGate = rateLimit(`topup:${data.userId}:${tableId}:${amt}`, 1, 5000);
-        if (!dupGate.ok) throw new InvalidActionError("درخواست تکراری؛ کمی صبر کنید");
+        // True idempotency: the client sends a stable requestId per top-up
+        // intent, so a double-click or a socket retry that re-delivers the same
+        // id is applied at most once (a duplicate is acked without re-charging).
+        if (typeof requestId === "string" && requestId) {
+          const key = `topup:${data.userId}:${requestId}`;
+          if (!claimOnce(key, 60_000)) {
+            socket.emit("topup_result", { status: "duplicate", amount: amt });
+            return;
+          }
+          claimKey = key;
+        }
         // Load the runtime ONCE up front and reuse it for both the tournament
         // guard and the seat lookup. Reading getRuntime() twice around an await
         // is a TOCTOU hole: an unloaded table skips the guard, then a concurrent
@@ -202,6 +212,9 @@ export function registerSocketHandlers(io: SocketIOServer): void {
           socket.emit("topup_result", { status: "pending", amount: amt });
         }
       } catch (err) {
+        // The top-up didn't apply — free the idempotency key so the user can
+        // genuinely retry the same intent.
+        if (claimKey) releaseClaim(claimKey);
         fail(socket, err);
       }
     });

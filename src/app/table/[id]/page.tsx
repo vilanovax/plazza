@@ -666,7 +666,7 @@ function ShowCardsPrompt({ until, onShow }: { until: number; onShow: () => void 
 function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, onPreAction, sitOut, requestExtraTime, isTournament, onForfeit }: {
   compact?: boolean;
   state: PublicGameState; mySeat: SeatVM;
-  act: (a: PlayerAction) => void; topup: (n: number) => void; leaveSeat: () => void;
+  act: (a: PlayerAction) => void; topup: (n: number, requestId: string) => void; leaveSeat: () => void;
   preAction: PreAction | null; onPreAction: (t: PreAction) => void;
   sitOut: (out: boolean) => void; requestExtraTime: () => void;
   isTournament?: boolean; onForfeit?: () => void;
@@ -689,6 +689,10 @@ function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, o
 
   const canRaise = maxTo > state.currentBet;
   const [showTopup, setShowTopup] = useState(false);
+  // Stable id for the current top-up intent: minted when the row opens and
+  // reused on every submit click, so a double-click / retry dedups server-side
+  // (true idempotency) while a fresh row is a genuinely new request.
+  const topupReqId = useRef("");
   const [topupAmt, setTopupAmt] = useState(state.config.topUpMin || state.config.bigBlind * 20);
 
   return (
@@ -750,7 +754,7 @@ function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, o
                 </button>
               )}
               {!isTournament && state.config.allowTopUp && (
-                <button className="btn btn-gold action-btn-sm" onClick={() => setShowTopup((s) => !s)}>+ تاپ‌آپ</button>
+                <button className="btn btn-gold action-btn-sm" onClick={() => setShowTopup((s) => { const next = !s; if (next) topupReqId.current = crypto.randomUUID(); return next; })}>+ تاپ‌آپ</button>
               )}
               {isTournament ? (
                 <button className="btn btn-danger action-btn-sm" onClick={onForfeit}>انصراف از تورنومنت</button>
@@ -765,7 +769,7 @@ function ActionBar({ compact, state, mySeat, act, topup, leaveSeat, preAction, o
       {showTopup && !isTournament && (
         <div className="action-topup-row">
           <Input type="number" className="action-topup-input" value={topupAmt} onChange={(e) => setTopupAmt(Number(e.target.value))} />
-          <button className="btn btn-primary" onClick={() => { topup(topupAmt); setShowTopup(false); }}>درخواست</button>
+          <button className="btn btn-primary" onClick={() => { topup(topupAmt, topupReqId.current || crypto.randomUUID()); setShowTopup(false); }}>درخواست</button>
         </div>
       )}
     </div>

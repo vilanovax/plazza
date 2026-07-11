@@ -13,7 +13,7 @@ export interface TableSocket {
   sit: (seatIndex: number, buyIn: number) => void;
   leaveSeat: () => void;
   act: (action: PlayerAction) => void;
-  topup: (amount: number) => void;
+  topup: (amount: number, requestId: string) => void;
   showCards: () => void;
   sitOut: (out: boolean) => void;
   requestExtraTime: () => void;
@@ -53,7 +53,7 @@ export function useTableSocket(tableId: string, invite?: string): TableSocket {
   const sit = useCallback((seatIndex: number, buyIn: number) => sockRef.current?.emit("sit", { tableId, seatIndex, buyIn }), [tableId]);
   const leaveSeat = useCallback(() => sockRef.current?.emit("leave_seat", { tableId }), [tableId]);
   const act = useCallback((action: PlayerAction) => sockRef.current?.emit("action", { tableId, action }), [tableId]);
-  const topup = useCallback((amount: number) => sockRef.current?.emit("topup", { tableId, amount }), [tableId]);
+  const topup = useCallback((amount: number, requestId: string) => sockRef.current?.emit("topup", { tableId, amount, requestId }), [tableId]);
   const showCards = useCallback(() => sockRef.current?.emit("show_cards", { tableId }), [tableId]);
   const sitOut = useCallback((out: boolean) => sockRef.current?.emit("sit_out", { tableId, out }), [tableId]);
   const requestExtraTime = useCallback(() => sockRef.current?.emit("extra_time", { tableId }), [tableId]);
