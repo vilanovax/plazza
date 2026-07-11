@@ -23,7 +23,7 @@ export interface TableSocket {
   chat: (text: string) => void;
 }
 
-export function useTableSocket(tableId: string): TableSocket {
+export function useTableSocket(tableId: string, invite?: string): TableSocket {
   const [state, setState] = useState<PublicGameState | null>(null);
   const [tourney, setTourney] = useState<TournamentTableBanner | null>(null);
   const [connected, setConnected] = useState(false);
@@ -36,7 +36,7 @@ export function useTableSocket(tableId: string): TableSocket {
 
     socket.on("connect", () => {
       setConnected(true);
-      socket.emit("join", { tableId });
+      socket.emit("join", { tableId, invite });
     });
     socket.on("disconnect", () => setConnected(false));
     socket.on("connect_error", (e) => setError(e.message === "unauthorized" ? "احراز هویت ناموفق" : "اتصال برقرار نشد"));
@@ -48,7 +48,7 @@ export function useTableSocket(tableId: string): TableSocket {
       socket.disconnect();
       sockRef.current = null;
     };
-  }, [tableId]);
+  }, [tableId, invite]);
 
   const sit = useCallback((seatIndex: number, buyIn: number) => sockRef.current?.emit("sit", { tableId, seatIndex, buyIn }), [tableId]);
   const leaveSeat = useCallback(() => sockRef.current?.emit("leave_seat", { tableId }), [tableId]);

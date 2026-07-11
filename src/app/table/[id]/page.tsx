@@ -38,7 +38,13 @@ const PHASE_FA: Record<string, string> = {
 export default function TablePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat } = useTableSocket(id);
+  // Invite code for a private table, read once from the ?invite= query param.
+  const [invite] = useState(() =>
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("invite") ?? undefined
+      : undefined
+  );
+  const { state, tourney, connected, error, clearError, sit, leaveSeat, act, topup, showCards, sitOut, requestExtraTime, kick, rebuy, forfeitTournament, chat } = useTableSocket(id, invite);
   const [me, setMe] = useState<Me | null>(null);
   const [sitSeat, setSitSeat] = useState<number | null>(null);
   const [forfeitOpen, setForfeitOpen] = useState(false);

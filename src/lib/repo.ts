@@ -316,11 +316,13 @@ export async function updateSettings(patch: Partial<AdminSettings>): Promise<Adm
 export async function createTable(
   name: string,
   config: TableConfig,
-  createdBy: string
+  createdBy: string,
+  opts?: { isPrivate?: boolean; inviteCode?: string | null }
 ): Promise<PokerTableRow> {
   const row = await one<PokerTableRow>(
-    `INSERT INTO poker_tables (name, config, created_by) VALUES ($1, $2, $3) RETURNING *`,
-    [name, JSON.stringify(config), createdBy]
+    `INSERT INTO poker_tables (name, config, created_by, is_private, invite_code)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [name, JSON.stringify(config), createdBy, opts?.isPrivate ?? false, opts?.inviteCode ?? null]
   );
   return row!;
 }
@@ -344,6 +346,7 @@ export async function listOpenTablesWithCounts(): Promise<
        LEFT JOIN table_seats s ON s.table_id = t.id AND s.user_id IS NOT NULL
       WHERE t.status = 'open'
         AND t.tournament_id IS NULL
+        AND t.is_private = FALSE
       GROUP BY t.id
       ORDER BY t.created_at DESC`
   );

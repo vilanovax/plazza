@@ -35,6 +35,8 @@ export interface PokerTableRow {
   created_by: string | null;
   created_at: string;
   closed_at: string | null;
+  is_private: boolean;
+  invite_code: string | null;
 }
 
 export type LedgerType =

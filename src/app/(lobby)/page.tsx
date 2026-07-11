@@ -750,8 +750,12 @@ function CreateTableModal({ onClose, onDone }: { onClose: () => void; onDone: ()
   const [ante, setAnte] = useState(0);
   const [rakePercent, setRakePercent] = useState(0);
   const [rakeCap, setRakeCap] = useState(0);
+  const [isPrivate, setIsPrivate] = useState(false);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // Set after creating a private table so we can show the shareable invite link.
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const stake = STAKES.find((s) => s.id === stakeId) ?? STAKES[0];
   const tableName = name.trim() || "میز جدید";
@@ -760,7 +764,7 @@ function CreateTableModal({ onClose, onDone }: { onClose: () => void; onDone: ()
     setErr("");
     setBusy(true);
     try {
-      await api("/api/tables", {
+      const res = await api<{ id: string; isPrivate: boolean; inviteCode: string | null }>("/api/tables", {
         method: "POST",
         body: {
           name: tableName,
@@ -773,14 +777,45 @@ function CreateTableModal({ onClose, onDone }: { onClose: () => void; onDone: ()
           ante,
           rakePercent,
           rakeCap,
+          isPrivate,
         },
       });
-      onDone();
+      // A private table is unlisted, so surface its invite link for the host to
+      // share; the list refreshes only once they close this panel.
+      if (res.inviteCode) {
+        setInviteLink(`${window.location.origin}/table/${res.id}?invite=${res.inviteCode}`);
+      } else {
+        onDone();
+      }
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function copyLink() {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable — the field is selectable as a fallback */
+    }
+  }
+
+  if (inviteLink) {
+    return (
+      <Modal title="میز خصوصی ساخته شد" subtitle="این لینک دعوت را برای دوستانت بفرست" onClose={onDone} titleId="create-table-title">
+        <p className="create-invite-hint">فقط کسانی که این لینک را دارند می‌توانند وارد میز شوند. این لینک دوباره نمایش داده نمی‌شود.</p>
+        <div className="create-invite-row">
+          <Input readOnly value={inviteLink} onFocus={(e) => e.target.select()} aria-label="لینک دعوت" />
+          <button type="button" className="btn btn-gold" onClick={copyLink}>{copied ? "کپی شد ✓" : "کپی"}</button>
+        </div>
+        <button type="button" className="btn btn-primary create-submit" onClick={onDone}>تمام</button>
+      </Modal>
+    );
   }
 
   return (
@@ -877,10 +912,18 @@ function CreateTableModal({ onClose, onDone }: { onClose: () => void; onDone: ()
           </div>
         )}
 
+        <label className="create-private-row">
+          <input type="checkbox" checked={isPrivate} onChange={(e) => setIsPrivate(e.target.checked)} />
+          <span>
+            <span className="create-private-title">میز خصوصی (فقط با لینک دعوت)</span>
+            <span className="create-private-desc">در لابی عمومی نمایش داده نمی‌شود؛ فقط با لینک دعوت قابل ورود است.</span>
+          </span>
+        </label>
+
         {err && <p className="create-error">{err}</p>}
 
         <button type="button" className="btn btn-primary create-submit" onClick={create} disabled={busy}>
-          {busy ? "در حال ساخت…" : `ساخت «${tableName}»`}
+          {busy ? "در حال ساخت…" : isPrivate ? `ساخت میز خصوصی «${tableName}»` : `ساخت «${tableName}»`}
         </button>
     </Modal>
   );

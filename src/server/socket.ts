@@ -46,8 +46,16 @@ export function registerSocketHandlers(io: SocketIOServer): void {
   io.on("connection", (socket) => {
     const data = socket.data as SocketData;
 
-    socket.on("join", async ({ tableId }: { tableId: string }) => {
+    socket.on("join", async ({ tableId, invite }: { tableId: string; invite?: string }) => {
       try {
+        // Private tables are invite-only: verify the code BEFORE joining the
+        // room or touching the current table, so an unauthorized attempt can't
+        // see state or disturb the table the socket is already on.
+        const row = await repo.getTable(tableId);
+        if (!row || row.status !== "open") throw new InvalidActionError("میز یافت نشد");
+        if (row.is_private && data.role !== "admin" && (!row.invite_code || invite !== row.invite_code)) {
+          throw new InvalidActionError("این میز خصوصی است؛ برای ورود به لینک دعوت نیاز دارید");
+        }
         if (data.tableId && data.tableId !== tableId) {
           gameManager.unregisterSocket(data.tableId, socket);
           void socket.leave(`table:${data.tableId}`);
@@ -83,6 +91,9 @@ export function registerSocketHandlers(io: SocketIOServer): void {
 
     socket.on("sit", async ({ tableId, seatIndex, buyIn }: { tableId: string; seatIndex: number; buyIn: number }) => {
       try {
+        // Must have joined this table first (which enforces the private-table
+        // invite check) before taking a seat.
+        if (data.tableId !== tableId) throw new InvalidActionError("ابتدا به میز بپیوندید");
         await gameManager.sit(tableId, data.userId, seatIndex, Math.floor(buyIn));
       } catch (err) {
         fail(socket, err);
@@ -159,13 +170,16 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       try {
         const amt = Math.floor(amount);
         if (amt <= 0) throw new InvalidActionError("مبلغ نامعتبر است");
-        // Dedup guard: a double-click or socket retry can deliver the SAME
-        // top-up twice, and the self-top-up path debits the bank and grows the
-        // stack on each one. Key on the specific intent (user + table + amount)
-        // for a few seconds so an identical duplicate is rejected while a
-        // genuinely different amount still goes straight through.
-        const gate = rateLimit(`topup:${data.userId}:${tableId}:${amt}`, 1, 5000);
-        if (!gate.ok) throw new InvalidActionError("درخواست تکراری؛ کمی صبر کنید");
+        // Two gates, user-gate first so bucket creation stays bounded per user
+        // (the intent key below mixes client-controlled table/amount, so on its
+        // own it could be varied to bypass the throttle and flood the bucket map).
+        //   1) Per-user throttle: caps top-up rate regardless of table/amount.
+        const userGate = rateLimit(`topup:${data.userId}`, 5, 10_000);
+        if (!userGate.ok) throw new InvalidActionError("درخواست‌های زیاد؛ کمی صبر کنید");
+        //   2) Intent dedup: rejects an identical duplicate (double-click / retry)
+        //      while a genuinely different amount still passes the user gate.
+        const dupGate = rateLimit(`topup:${data.userId}:${tableId}:${amt}`, 1, 5000);
+        if (!dupGate.ok) throw new InvalidActionError("درخواست تکراری؛ کمی صبر کنید");
         // Load the runtime ONCE up front and reuse it for both the tournament
         // guard and the seat lookup. Reading getRuntime() twice around an await
         // is a TOCTOU hole: an unloaded table skips the guard, then a concurrent

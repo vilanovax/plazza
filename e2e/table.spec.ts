@@ -58,6 +58,22 @@ test.describe("Cash table", () => {
     await expect(page.getByText("خالی")).toBeVisible();
   });
 
+  test("private table is unlisted but returns an invite code", async ({ page }) => {
+    const name = `E2E Private ${uniqueSuffix()}`;
+    const res = await page.request.post("/api/tables", {
+      data: { name, smallBlind: 5, bigBlind: 10, minBuyIn: 200, maxBuyIn: 2000, maxSeats: 6, thinkTimeSec: 30, isPrivate: true },
+    });
+    expect(res.ok()).toBeTruthy();
+    const { id, isPrivate, inviteCode } = (await res.json()) as { id: string; isPrivate: boolean; inviteCode: string | null };
+    expect(isPrivate).toBe(true);
+    expect(inviteCode).toBeTruthy();
+
+    // A private table must NOT appear in the public lobby listing.
+    const list = await page.request.get("/api/tables");
+    const { tables } = (await list.json()) as { tables: Array<{ id: string }> };
+    expect(tables.some((t) => t.id === id)).toBe(false);
+  });
+
   test("creates a table from the lobby UI", async ({ page }) => {
     const name = `UI Table ${uniqueSuffix()}`;
     await page.getByRole("button", { name: /ساخت میز جدید/ }).click();
