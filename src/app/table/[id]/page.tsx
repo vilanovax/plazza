@@ -1,5 +1,5 @@
 "use client";
-import { use, useCallback, useEffect, useRef, useState, memo } from "react";
+import { use, useCallback, useEffect, useMemo, useRef, useState, memo } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTableSocket } from "@/components/useTableSocket";
@@ -55,6 +55,11 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   }), []);
   // The player's own pinned quick-emotes (sent as chat with one tap).
   const [myEmotes, setMyEmotes] = useState<string[]>([]);
+  // Stable across renders so the memoized SeatView isn't invalidated by a fresh
+  // closure on every socket push (its comparator can then skip unchanged seats).
+  const onSeatSelect = useCallback((seatIndex: number, userId: string | null, name: string | null) => {
+    if (userId) setStatsFor({ userId, name: name ?? "بازیکن", seatIndex });
+  }, []);
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
   useEffect(() => { api<{ profile: { emotes: string[] } }>("/api/profile").then((d) => setMyEmotes(d.profile.emotes)).catch(() => {}); }, []);
@@ -196,7 +201,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
                   showdown={state?.phase === "hand_complete"}
                   compact={compact}
                   chipOffset={{ x: pos.chipOx, y: pos.chipOy }}
-                  onSelect={() => seat!.userId && setStatsFor({ userId: seat!.userId, name: seat!.name ?? "بازیکن", seatIndex: i })}
+                  onSelect={onSeatSelect}
                 />
               ) : (
                 <button className="btn btn-ghost seat-empty-btn"
@@ -351,18 +356,56 @@ function seatPosition(
   };
 }
 
-const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, compact, chipOffset, onSelect }: {
+interface SeatViewProps {
   seat: SeatVM; isTurn: boolean; isButton: boolean; isViewer?: boolean; community: Card[]; deadline?: number; showdown?: boolean; compact?: boolean;
-  chipOffset?: { x: number; y: number }; onSelect?: () => void;
-}) {
+  chipOffset?: { x: number; y: number }; onSelect?: (seatIndex: number, userId: string | null, name: string | null) => void;
+}
+
+/**
+ * The table re-broadcasts a brand-new state object on every socket push (each
+ * action, chat line, timer refresh), so `seat`/`community` are always fresh
+ * references and a shallow memo would never skip a render. This comparator does
+ * a field-wise compare of everything the seat actually paints, so a broadcast
+ * that doesn't touch THIS seat (e.g. a chat message, or another seat's bet)
+ * skips both the re-render and the per-seat hand evaluation below.
+ */
+function seatViewEqual(a: SeatViewProps, b: SeatViewProps): boolean {
+  if (
+    a.isTurn !== b.isTurn || a.isButton !== b.isButton || a.isViewer !== b.isViewer ||
+    a.showdown !== b.showdown || a.compact !== b.compact || a.deadline !== b.deadline ||
+    a.onSelect !== b.onSelect
+  ) return false;
+  if (a.chipOffset?.x !== b.chipOffset?.x || a.chipOffset?.y !== b.chipOffset?.y) return false;
+  if (a.community.length !== b.community.length) return false;
+  for (let i = 0; i < a.community.length; i++) if (a.community[i] !== b.community[i]) return false;
+  const s1 = a.seat, s2 = b.seat;
+  if (
+    s1.status !== s2.status || s1.betThisRound !== s2.betThisRound || s1.stack !== s2.stack ||
+    s1.name !== s2.name || s1.title !== s2.title || s1.tagline !== s2.tagline ||
+    s1.isConnected !== s2.isConnected || s1.sitOut !== s2.sitOut || s1.userId !== s2.userId ||
+    s1.seatIndex !== s2.seatIndex || s1.avatar !== s2.avatar || s1.cardBack !== s2.cardBack ||
+    s1.chipColor !== s2.chipColor || s1.hasCards !== s2.hasCards
+  ) return false;
+  const h1 = s1.holeCards, h2 = s2.holeCards;
+  if ((h1?.length ?? 0) !== (h2?.length ?? 0)) return false;
+  if (h1 && h2) for (let i = 0; i < h1.length; i++) if (h1[i] !== h2[i]) return false;
+  return true;
+}
+
+const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, compact, chipOffset, onSelect }: SeatViewProps) {
   const folded = seat.status === "folded";
   // Show the current best hand for any cards we can actually see (the viewer's
-  // own during play, everyone's at showdown), from the flop onward.
-  const handName = !folded ? currentHandName(seat.holeCards, community) : null;
+  // own during play, everyone's at showdown), from the flop onward. Memoised so
+  // a re-render that leaves the visible cards unchanged skips the evaluation.
+  const handName = useMemo(
+    () => (folded ? null : currentHandName(seat.holeCards, community)),
+    [folded, seat.holeCards, community]
+  );
+  const select = onSelect ? () => onSelect(seat.seatIndex, seat.userId, seat.name) : undefined;
   return (
     <div
-      onClick={onSelect}
-      onKeyDown={(e) => { if (onSelect && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); onSelect(); } }}
+      onClick={select}
+      onKeyDown={(e) => { if (select && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); select(); } }}
       role={onSelect ? "button" : undefined}
       tabIndex={onSelect ? 0 : undefined}
       aria-label={onSelect ? `آمار ${seat.name ?? "بازیکن"}` : undefined}
@@ -415,7 +458,7 @@ const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, comm
       </div>
     </div>
   );
-});
+}, seatViewEqual);
 
 function Countdown({ deadline }: { deadline: number }) {
   const [now, setNow] = useState(0);
@@ -448,21 +491,30 @@ function ChatPanel({ compact, log, myId, muteAll, mutedUsers, emotes, onToggleMu
   const [open, setOpen] = useState(() => !compact);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  // Collapse the feed on the transition INTO compact (small/landscape) layout.
+  // Done at render time rather than in an effect — same "adjust state on prop
+  // change" pattern used by ActionBar — to avoid a cascading extra render.
+  const [prevCompact, setPrevCompact] = useState(compact);
+  if (compact !== prevCompact) {
+    setPrevCompact(compact);
     if (compact) setOpen(false);
-  }, [compact]);
+  }
 
   const collapsed = !open;
 
-  // Hide muted players' chat/all-in lines; table events always show.
-  const visible = log.filter((e) => {
-    if (e.kind !== "chat" && e.kind !== "allin") return true;
-    const uid = e.author?.userId;
-    if (!uid || uid === myId) return true;
-    if (muteAll) return false;
-    return !mutedUsers.has(uid);
-  });
-  const recent = visible.slice(-40);
+  // Hide muted players' chat/all-in lines; table events always show. Memoised so
+  // this only re-runs when the log or mute prefs change, not on every render
+  // (e.g. typing in the compose box, which updates local `text` state).
+  const recent = useMemo(() => {
+    const visible = log.filter((e) => {
+      if (e.kind !== "chat" && e.kind !== "allin") return true;
+      const uid = e.author?.userId;
+      if (!uid || uid === myId) return true;
+      if (muteAll) return false;
+      return !mutedUsers.has(uid);
+    });
+    return visible.slice(-40);
+  }, [log, myId, muteAll, mutedUsers]);
   const lastEntryId = recent[recent.length - 1]?.id;
 
   useEffect(() => {
@@ -565,7 +617,7 @@ function ChatPanel({ compact, log, myId, muteAll, mutedUsers, emotes, onToggleMu
  *  Keyed by the entry id so the CSS animation replays only on a NEW all-in
  *  (React remounts on key change) — no timers or state, so it's lint-clean. */
 function AllInFlash({ log }: { log: LogEntry[] }) {
-  const lastAllIn = [...log].reverse().find((e) => e.kind === "allin");
+  const lastAllIn = log.findLast((e) => e.kind === "allin");
   if (!lastAllIn) return null;
   return (
     <div key={lastAllIn.id} className="allin-flash">
