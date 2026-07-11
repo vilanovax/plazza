@@ -3,7 +3,6 @@
  * in the handshake; unauthenticated sockets are rejected. Clients send intents
  * (sit/leave/action/topup) and receive personalised `state` broadcasts.
  */
-import { randomUUID } from "node:crypto";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 import { sessionFromCookieHeader } from "../lib/auth";
 import { InvalidActionError } from "../lib/poker/engine";
@@ -168,14 +167,11 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       }
     });
 
-    // Admin-only: ban a player from the table (kick + block rejoining).
+    // Admin-only: ban a player from the table (kick + block rejoining). The ban
+    // and its audit record are written atomically inside gameManager.ban.
     socket.on("ban", async ({ tableId, userId }: { tableId: string; userId: string }) => {
       try {
         await gameManager.ban(tableId, data.role, userId, data.userId);
-        await repo.writeAudit({
-          correlationId: randomUUID(), actorId: data.userId, action: "admin.table_ban",
-          targetType: "user", targetId: userId, metadata: { tableId },
-        });
       } catch (err) {
         fail(socket, err);
       }

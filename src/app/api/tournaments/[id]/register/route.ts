@@ -46,7 +46,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
       void tournamentManager.broadcastDetailUpdate(id);
       // Sit & Go: once the last seat is filled, start automatically (an admin can
       // still start early with fewer players).
-      await tournamentManager.autoStartIfFull(id, session.sub);
+      await tournamentManager.autoStartIfFull(id);
     }
     return json({ ok: true });
   });

@@ -321,13 +321,13 @@ export async function updateSettings(patch: Partial<AdminSettings>): Promise<Adm
 export async function createTable(
   name: string,
   config: TableConfig,
-  createdBy: string,
+  createdBy: string | null,
   opts?: { isPrivate?: boolean; inviteCode?: string | null }
 ): Promise<PokerTableRow> {
   const row = await one<PokerTableRow>(
     `INSERT INTO poker_tables (name, config, created_by, is_private, invite_code)
      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [name, JSON.stringify(config), createdBy, opts?.isPrivate ?? false, opts?.inviteCode ?? null]
+    [name, JSON.stringify(config), createdBy ?? null, opts?.isPrivate ?? false, opts?.inviteCode ?? null]
   );
   return row!;
 }
@@ -499,20 +499,18 @@ export async function recentTableEvents(tableId: string, limit = 60): Promise<Lo
 // ---------------------------------------------------------------------------
 // Table bans (persistent; see migration 0020)
 // ---------------------------------------------------------------------------
-export async function banFromTable(tableId: string, userId: string, bannedBy: string): Promise<void> {
-  await query(
+/** Persist a table ban inside an existing transaction (atomic with its audit). */
+export async function banFromTableTx(
+  client: PoolClient,
+  tableId: string,
+  userId: string,
+  bannedBy: string
+): Promise<void> {
+  await client.query(
     `INSERT INTO table_bans (table_id, user_id, banned_by) VALUES ($1, $2, $3)
      ON CONFLICT (table_id, user_id) DO NOTHING`,
     [tableId, userId, bannedBy]
   );
-}
-
-export async function unbanFromTable(tableId: string, userId: string): Promise<boolean> {
-  const rows = await query<{ user_id: string }>(
-    "DELETE FROM table_bans WHERE table_id = $1 AND user_id = $2 RETURNING user_id",
-    [tableId, userId]
-  );
-  return rows.length > 0;
 }
 
 export async function isBannedFromTable(tableId: string, userId: string): Promise<boolean> {

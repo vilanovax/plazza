@@ -11,6 +11,7 @@
  * On restart, tables are rehydrated from table_seats (last hand-end stacks);
  * any hand interrupted by a crash is abandoned and committed chips revert.
  */
+import { randomUUID } from "node:crypto";
 import type { Server as SocketIOServer, Socket } from "socket.io";
 import { HoldemGame, InvalidActionError } from "../lib/poker/engine";
 import { cardToString } from "../lib/poker/cards";
@@ -487,11 +488,22 @@ export class GameManager {
   /** Admin bans a player from this table (kick + persist so they can't rejoin). */
   async ban(tableId: string, actorRole: string, userId: string, bannedBy: string): Promise<void> {
     if (actorRole !== "admin") throw new InvalidActionError("فقط مدیر می‌تواند بازیکن را مسدود کند");
-    const rt = this.tables.get(tableId);
-    if (rt?.isTournament) throw new InvalidActionError("در تورنومنت امکان مسدودسازی میز نیست");
     if (!userId) throw new InvalidActionError("بازیکن نامعتبر است");
-    // Persist the ban first so a rejoin race can't slip in before it lands.
-    await repo.banFromTable(tableId, userId, bannedBy);
+    const rt = this.tables.get(tableId);
+    // Tournament guard with a DB fallback: an unloaded table has no runtime, and
+    // `rt?.isTournament` would be undefined (falsy) and skip the check.
+    const isTournament = rt ? rt.isTournament : !!(await repo.getTable(tableId))?.tournament_id;
+    if (isTournament) throw new InvalidActionError("در تورنومنت امکان مسدودسازی میز نیست");
+    // Persist the ban and its audit record atomically — a ban must never exist
+    // without its log (or vice versa). Doing this first also means a rejoin race
+    // can't slip in before the ban lands.
+    await tx(async (client) => {
+      await repo.banFromTableTx(client, tableId, userId, bannedBy);
+      await repo.writeAuditTx(client, {
+        correlationId: randomUUID(), actorId: bannedBy, action: "admin.table_ban",
+        targetType: "user", targetId: userId, metadata: { tableId },
+      });
+    });
     // If they're seated, remove them (cashing their stack back to the bank).
     if (rt) {
       const seat = rt.game.seats.find((s) => s.userId === userId);
@@ -500,7 +512,6 @@ export class GameManager {
         if (name !== null) {
           this.pushLog(rt, `${name} توسط مدیر از میز مسدود شد`);
           await this.afterMutation(rt);
-          return;
         }
       }
     }

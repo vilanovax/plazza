@@ -304,7 +304,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           name={statsFor.name}
           canKick={me?.role === "admin" && statsFor.userId !== me?.id}
           onKick={() => { kick(statsFor.seatIndex, statsFor.userId); setStatsFor(null); }}
-          onBan={() => { ban(statsFor.userId); setStatsFor(null); }}
+          onBan={!tourney ? () => { ban(statsFor.userId); setStatsFor(null); } : undefined}
           onClose={() => setStatsFor(null)}
         />
       )}
