@@ -395,11 +395,16 @@ function seatViewEqual(a: SeatViewProps, b: SeatViewProps): boolean {
 const SeatView = memo(function SeatView({ seat, isTurn, isButton, isViewer, community, deadline, showdown, compact, chipOffset, onSelect }: SeatViewProps) {
   const folded = seat.status === "folded";
   // Show the current best hand for any cards we can actually see (the viewer's
-  // own during play, everyone's at showdown), from the flop onward. Memoised so
-  // a re-render that leaves the visible cards unchanged skips the evaluation.
+  // own during play, everyone's at showdown), from the flop onward. Every socket
+  // broadcast hands us fresh array wrappers, so key the memo on the card
+  // *contents* (Card is a number) — otherwise a re-render from a non-card change
+  // (stack, bet, deadline) would needlessly re-evaluate the hand.
+  const holeKey = seat.holeCards?.join(",") ?? "";
+  const communityKey = community.join(",");
   const handName = useMemo(
     () => (folded ? null : currentHandName(seat.holeCards, community)),
-    [folded, seat.holeCards, community]
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed by card contents; the array refs change on every push
+    [folded, holeKey, communityKey]
   );
   const select = onSelect ? () => onSelect(seat.seatIndex, seat.userId, seat.name) : undefined;
   return (
@@ -617,7 +622,12 @@ function ChatPanel({ compact, log, myId, muteAll, mutedUsers, emotes, onToggleMu
  *  Keyed by the entry id so the CSS animation replays only on a NEW all-in
  *  (React remounts on key change) — no timers or state, so it's lint-clean. */
 function AllInFlash({ log }: { log: LogEntry[] }) {
-  const lastAllIn = log.findLast((e) => e.kind === "allin");
+  // Reverse scan without copying the array (and without ES2023 findLast, which
+  // isn't polyfilled for older iOS WebViews at our ES2017 runtime target).
+  let lastAllIn: LogEntry | undefined;
+  for (let i = log.length - 1; i >= 0; i--) {
+    if (log[i].kind === "allin") { lastAllIn = log[i]; break; }
+  }
   if (!lastAllIn) return null;
   return (
     <div key={lastAllIn.id} className="allin-flash">
