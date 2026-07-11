@@ -24,10 +24,22 @@ export function rateLimit(key: string, limit: number, windowMs: number): { ok: b
   return { ok: true, retryAfter: 0 };
 }
 
-/** Best-effort client IP from proxy headers. */
+/**
+ * Best-effort client IP for rate-limit keys.
+ *
+ * The app runs behind a single trusted reverse proxy (Caddy/nginx — see the
+ * deploy notes in README), which APPENDS the real peer to X-Forwarded-For. So
+ * the *rightmost* entry is the one our infrastructure set and a client cannot
+ * forge; the leftmost entry is attacker-controlled and must never key a limit.
+ * `x-real-ip` (also proxy-set) is the fallback. If you front the app with more
+ * than one proxy hop, adjust which entry is trusted accordingly.
+ */
 export function clientIp(req: Request): string {
   const xff = req.headers.get("x-forwarded-for");
-  if (xff) return xff.split(",")[0].trim();
+  if (xff) {
+    const parts = xff.split(",").map((s) => s.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
+  }
   return req.headers.get("x-real-ip") ?? "unknown";
 }
 

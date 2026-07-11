@@ -159,11 +159,12 @@ export function registerSocketHandlers(io: SocketIOServer): void {
       try {
         const amt = Math.floor(amount);
         if (amt <= 0) throw new InvalidActionError("مبلغ نامعتبر است");
-        // Idempotency guard: a double-click or a socket retry can deliver the
-        // same top-up twice, and the self-top-up path would debit the bank and
-        // grow the stack on each one. Allow at most one top-up per 2s per user
-        // so a duplicate emit is rejected instead of applied a second time.
-        const gate = rateLimit(`topup:${data.userId}`, 1, 2000);
+        // Dedup guard: a double-click or socket retry can deliver the SAME
+        // top-up twice, and the self-top-up path debits the bank and grows the
+        // stack on each one. Key on the specific intent (user + table + amount)
+        // for a few seconds so an identical duplicate is rejected while a
+        // genuinely different amount still goes straight through.
+        const gate = rateLimit(`topup:${data.userId}:${tableId}:${amt}`, 1, 5000);
         if (!gate.ok) throw new InvalidActionError("درخواست تکراری؛ کمی صبر کنید");
         // Load the runtime ONCE up front and reuse it for both the tournament
         // guard and the seat lookup. Reading getRuntime() twice around an await
