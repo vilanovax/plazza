@@ -4,12 +4,23 @@
 import { NextResponse } from "next/server";
 import { getSession, type SessionPayload } from "./auth";
 
-export function json(data: unknown, status = 200): NextResponse {
-  return NextResponse.json(data, { status });
+/** Default for authenticated/dynamic API responses: never let a shared cache or
+ *  CDN store a per-user payload (game state, stack, tokens…) where it could be
+ *  served to another user. Public, cacheable endpoints opt in via `opts.cache`. */
+const NO_STORE = "private, no-store";
+
+export function json(data: unknown, status = 200, opts?: { cache?: string }): NextResponse {
+  return NextResponse.json(data, { status, headers: { "Cache-Control": opts?.cache ?? NO_STORE } });
 }
 
 export function error(message: string, status = 400): NextResponse {
-  return NextResponse.json({ error: message }, { status });
+  return NextResponse.json({ error: message }, { status, headers: { "Cache-Control": NO_STORE } });
+}
+
+/** True for a canonical UUID string — guard before feeding user input to a
+ *  `uuid`-typed query so a malformed value is a clean 400, not a Postgres 500. */
+export function isUuid(v: unknown): v is string {
+  return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
 
 export class HttpError extends Error {

@@ -106,3 +106,16 @@
     grid-template-columns: 1fr;
   }
 }
+
+.admin-reports-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.admin-reports-empty {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0.5rem 0;
+}

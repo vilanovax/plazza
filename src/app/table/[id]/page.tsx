@@ -59,6 +59,31 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
     if (next.has(uid)) next.delete(uid); else next.add(uid);
     return next;
   }), []);
+  // Persistent, account-level blocks (loaded from the server): a blocked user's
+  // chat is hidden and — as social features land — they can't invite/challenge.
+  const [blockedIds, setBlockedIds] = useState<Set<string>>(new Set());
+  // Local block decisions (uid → intended blocked state) so a slow initial load
+  // reconciles with — rather than clobbers — the user's own toggles; and a
+  // per-user in-flight guard so a POST/DELETE can't land out of order.
+  const blockOverrides = useRef<Map<string, boolean>>(new Map());
+  const blockPending = useRef<Set<string>>(new Set());
+  const toggleBlock = useCallback(async (uid: string) => {
+    if (blockPending.current.has(uid)) return; // a toggle for this user is in flight
+    blockPending.current.add(uid);
+    const wasBlocked = blockedIds.has(uid);
+    blockOverrides.current.set(uid, !wasBlocked);
+    // Optimistic update; revert on failure.
+    setBlockedIds((prev) => { const n = new Set(prev); if (wasBlocked) n.delete(uid); else n.add(uid); return n; });
+    try {
+      if (wasBlocked) await api(`/api/blocks/${uid}`, { method: "DELETE" });
+      else await api("/api/blocks", { method: "POST", body: { userId: uid } });
+    } catch {
+      blockOverrides.current.delete(uid);
+      setBlockedIds((prev) => { const n = new Set(prev); if (wasBlocked) n.add(uid); else n.delete(uid); return n; });
+    } finally {
+      blockPending.current.delete(uid);
+    }
+  }, [blockedIds]);
   // The player's own pinned quick-emotes (sent as chat with one tap).
   const [myEmotes, setMyEmotes] = useState<string[]>([]);
   // Stable across renders so the memoized SeatView isn't invalidated by a fresh
@@ -69,6 +94,13 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
 
   useEffect(() => { fetchMe().then((u) => (u ? setMe(u) : router.replace("/login"))); }, [router]);
   useEffect(() => { api<{ profile: { emotes: string[] } }>("/api/profile").then((d) => setMyEmotes(d.profile.emotes)).catch(() => {}); }, []);
+  useEffect(() => { api<{ blocked: string[] }>("/api/blocks").then((d) => setBlockedIds(() => {
+    // Start from the server list, then layer any local toggles back on so a
+    // slow response can't drop existing blocks or undo an in-flight one.
+    const merged = new Set(d.blocked);
+    for (const [uid, blocked] of blockOverrides.current) { if (blocked) merged.add(uid); else merged.delete(uid); }
+    return merged;
+  })).catch(() => {}); }, []);
 
   const seatCount = state?.config.maxSeats ?? 6;
   const viewerSeat = state?.viewerSeat ?? null;
@@ -82,9 +114,8 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
   );
 
   // Execute (or invalidate) a pre-selected action as the game state changes.
-  // Clearing the one-shot selection here (a reaction to the live game-state
-  // stream) is intentional, so the set-state-in-effect rule is disabled.
-  /* eslint-disable react-hooks/set-state-in-effect */
+  // Clearing the one-shot selection here is a deliberate reaction to the live
+  // game-state stream.
   useEffect(() => {
     if (!state || viewerSeat == null || !preAction) return;
     // A pre-action only applies to the hand it was chosen in.
@@ -105,7 +136,6 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
       clearPre();
     }
   }, [state, viewerSeat, preAction, act, clearPre]);
-  /* eslint-enable react-hooks/set-state-in-effect */
 
   const { compact, landscape } = useTableLayout();
 
@@ -274,6 +304,7 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           myId={me?.id ?? null}
           muteAll={muteAll}
           mutedUsers={mutedUsers}
+          blockedIds={blockedIds}
           emotes={myEmotes}
           onToggleMuteAll={() => setMuteAll((m) => !m)}
           onToggleMuteUser={toggleMuteUser}
@@ -305,6 +336,9 @@ export default function TablePage({ params }: { params: Promise<{ id: string }> 
           canKick={me?.role === "admin" && statsFor.userId !== me?.id}
           onKick={() => { kick(statsFor.seatIndex, statsFor.userId); setStatsFor(null); }}
           onBan={!tourney ? () => { ban(statsFor.userId); setStatsFor(null); } : undefined}
+          isSelf={statsFor.userId === me?.id}
+          isBlocked={blockedIds.has(statsFor.userId)}
+          onToggleBlock={() => toggleBlock(statsFor.userId)}
           onClose={() => setStatsFor(null)}
         />
       )}
@@ -499,12 +533,13 @@ function Countdown({ deadline }: { deadline: number }) {
   return <div className="seat-countdown">{left ?? "•"}</div>;
 }
 
-function ChatPanel({ compact, log, myId, muteAll, mutedUsers, emotes, onToggleMuteAll, onToggleMuteUser, onSend }: {
+function ChatPanel({ compact, log, myId, muteAll, mutedUsers, blockedIds, emotes, onToggleMuteAll, onToggleMuteUser, onSend }: {
   compact?: boolean;
   log: LogEntry[];
   myId: string | null;
   muteAll: boolean;
   mutedUsers: Set<string>;
+  blockedIds: Set<string>;
   emotes: string[];
   onToggleMuteAll: () => void;
   onToggleMuteUser: (uid: string) => void;
@@ -534,11 +569,12 @@ function ChatPanel({ compact, log, myId, muteAll, mutedUsers, emotes, onToggleMu
       if (e.kind !== "chat" && e.kind !== "allin") return true;
       const uid = e.author?.userId;
       if (!uid || uid === myId) return true;
+      if (blockedIds.has(uid)) return false; // blocked users are always hidden
       if (muteAll) return false;
       return !mutedUsers.has(uid);
     });
     return visible.slice(-40);
-  }, [log, myId, muteAll, mutedUsers]);
+  }, [log, myId, muteAll, mutedUsers, blockedIds]);
   const lastEntryId = recent[recent.length - 1]?.id;
 
   useEffect(() => {
@@ -858,16 +894,29 @@ function StatChip({ label, value, tone = "default" }: { label: string; value: st
   );
 }
 
-function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onBan, onClose }: {
-  tableId: string; userId: string; name: string; canKick?: boolean; onKick?: () => void; onBan?: () => void; onClose: () => void;
+function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onBan, isSelf, isBlocked, onToggleBlock, onClose }: {
+  tableId: string; userId: string; name: string; canKick?: boolean; onKick?: () => void; onBan?: () => void;
+  isSelf?: boolean; isBlocked?: boolean; onToggleBlock?: () => void; onClose: () => void;
 }) {
   const [stats, setStats] = useState<PlayerStats | null>(null);
   const [err, setErr] = useState("");
+  const [reporting, setReporting] = useState(false);
+  const [reportMsg, setReportMsg] = useState<string | null>(null);
   useEffect(() => {
     api<PlayerStats>(`/api/tables/${tableId}/player/${userId}/stats`)
       .then(setStats)
       .catch((e) => setErr((e as Error).message));
   }, [tableId, userId]);
+
+  async function submitReport(reason: string) {
+    setReporting(false);
+    try {
+      await api("/api/reports", { method: "POST", body: { userId, reason, tableId } });
+      setReportMsg("گزارش شما ثبت شد و توسط مدیر بررسی می‌شود");
+    } catch (e) {
+      setReportMsg((e as Error).message);
+    }
+  }
 
   const displayName = stats?.displayName ?? name;
   const profile = stats?.profile;
@@ -963,6 +1012,20 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onBan, onClo
           <span className="stats-profile-link-icon" aria-hidden>♠</span>
           پروفایل کامل و افتخارات
         </Link>
+        {!isSelf && onToggleBlock && (
+          <button
+            type="button"
+            className={`btn ${isBlocked ? "btn-ghost" : "btn-danger"} stats-block-btn`}
+            onClick={onToggleBlock}
+          >
+            {isBlocked ? "رفع بلاک" : "بلاک کاربر"}
+          </button>
+        )}
+        {!isSelf && !reportMsg && (
+          <button type="button" className="btn btn-ghost stats-report-btn" onClick={() => setReporting((r) => !r)}>
+            گزارش کاربر
+          </button>
+        )}
         {canKick && onKick && (
           <button
             type="button"
@@ -982,6 +1045,16 @@ function PlayerStatsModal({ tableId, userId, name, canKick, onKick, onBan, onClo
           </button>
         )}
       </div>
+
+      {reporting && !reportMsg && (
+        <div className="stats-report-reasons">
+          <span className="stats-report-label">علت گزارش:</span>
+          {["رفتار توهین‌آمیز", "تقلب یا تبانی", "اسپم و مزاحمت", "نام یا پروفایل نامناسب", "سایر"].map((r) => (
+            <button key={r} type="button" className="btn btn-ghost stats-report-reason" onClick={() => submitReport(r)}>{r}</button>
+          ))}
+        </div>
+      )}
+      {reportMsg && <p className="stats-report-msg" role="status">{reportMsg}</p>}
     </Modal>
   );
 }

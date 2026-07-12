@@ -1166,6 +1166,30 @@
   background: rgba(0, 0, 0, 0.2);
 }
 
+.stats-report-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0 0.85rem 0.85rem;
+}
+
+.stats-report-label {
+  width: 100%;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.stats-report-reason {
+  font-size: 0.78rem;
+}
+
+.stats-report-msg {
+  padding: 0.5rem 0.85rem 0.85rem;
+  font-size: 0.8rem;
+  color: #7fd08a;
+}
+
 .stats-profile-link {
   display: flex;
   align-items: center;

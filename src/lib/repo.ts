@@ -523,6 +523,88 @@ export async function banFromTableTx(
   );
 }
 
+// ---------------------------------------------------------------------------
+// User blocks (persistent, account-level; see migration 0021)
+// ---------------------------------------------------------------------------
+export async function blockUser(blockerId: string, blockedId: string): Promise<void> {
+  if (blockerId === blockedId) return;
+  await query(
+    `INSERT INTO user_blocks (blocker_id, blocked_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+    [blockerId, blockedId]
+  );
+}
+
+export async function unblockUser(blockerId: string, blockedId: string): Promise<boolean> {
+  const rows = await query<{ blocked_id: string }>(
+    "DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2 RETURNING blocked_id",
+    [blockerId, blockedId]
+  );
+  return rows.length > 0;
+}
+
+export async function listBlockedIds(blockerId: string): Promise<string[]> {
+  const rows = await query<{ blocked_id: string }>(
+    "SELECT blocked_id FROM user_blocks WHERE blocker_id = $1",
+    [blockerId]
+  );
+  return rows.map((r) => r.blocked_id);
+}
+
+// ---------------------------------------------------------------------------
+// User reports (moderation; see migration 0022)
+// ---------------------------------------------------------------------------
+export interface ReportRow {
+  id: string;
+  reporter_id: string | null;
+  reported_id: string;
+  reason: string;
+  table_id: string | null;
+  status: "open" | "reviewed" | "dismissed";
+  created_at: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  reporter_name?: string | null;
+  reported_name?: string | null;
+}
+
+export async function createReport(input: {
+  reporterId: string; reportedId: string; reason: string; tableId?: string | null;
+}): Promise<void> {
+  await query(
+    `INSERT INTO user_reports (reporter_id, reported_id, reason, table_id) VALUES ($1, $2, $3, $4)`,
+    [input.reporterId, input.reportedId, input.reason, input.tableId ?? null]
+  );
+}
+
+/** Reports for admin review, newest first, with reporter/reported display names. */
+export async function listReports(status: string | null, limit = 100): Promise<ReportRow[]> {
+  const lim = Math.min(500, Math.max(1, limit));
+  const where = status ? "WHERE r.status = $1" : "";
+  const params = status ? [status, lim] : [lim];
+  return query<ReportRow>(
+    `SELECT r.*, ru.display_name AS reporter_name, rd.display_name AS reported_name
+       FROM user_reports r
+       LEFT JOIN users ru ON ru.id = r.reporter_id
+       LEFT JOIN users rd ON rd.id = r.reported_id
+       ${where}
+      ORDER BY r.created_at DESC LIMIT $${status ? 2 : 1}`,
+    params
+  );
+}
+
+/** Resolve an open report inside a transaction; returns false if it was already
+ *  reviewed/dismissed (so the caller can 409 and roll back its audit write). */
+export async function resolveReportTx(
+  client: PoolClient, id: string, status: "reviewed" | "dismissed", reviewerId: string
+): Promise<boolean> {
+  const res = await client.query(
+    `UPDATE user_reports SET status = $2, reviewed_by = $3, reviewed_at = now()
+      WHERE id = $1 AND status = 'open' RETURNING id`,
+    [id, status, reviewerId]
+  );
+  return (res.rowCount ?? 0) > 0;
+}
+
 export async function isBannedFromTable(tableId: string, userId: string): Promise<boolean> {
   const rows = await query<{ user_id: string }>(
     "SELECT user_id FROM table_bans WHERE table_id = $1 AND user_id = $2",

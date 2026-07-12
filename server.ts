@@ -31,6 +31,10 @@ async function main() {
     cors: { origin: false },
     // Keep transports lean; polling fallback stays available for restrictive networks.
     transports: ["websocket", "polling"],
+    // Cap inbound frames: every legitimate client message (an action intent, a
+    // chat line, a join) is tiny, so 64 KiB is generous while stopping a client
+    // from flooding memory with oversized payloads. Default is 1 MiB.
+    maxHttpBufferSize: 64 * 1024,
   });
 
   registerSocketHandlers(io);

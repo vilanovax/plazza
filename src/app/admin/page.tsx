@@ -1,10 +1,10 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { api, fetchMe } from "@/lib/client/api";
 import { Field, Input, LoadingScreen, Modal, PageHeader, PageShell, Select, Tabs } from "@/components/ui";
 
-type Tab = "users" | "topups" | "settlements" | "settings";
+type Tab = "users" | "topups" | "settlements" | "reports" | "settings";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -35,6 +35,7 @@ export default function AdminPage() {
           { id: "users", label: "کاربران", panel: <UsersTab /> },
           { id: "topups", label: "تاپ‌آپ", panel: <TopupsTab /> },
           { id: "settlements", label: "تسویه‌ها", panel: <SettlementsTab /> },
+          { id: "reports", label: "گزارش‌ها", panel: <ReportsTab /> },
           { id: "settings", label: "تنظیمات", panel: <SettingsTab /> },
         ]}
       />
@@ -244,6 +245,73 @@ function SettlementsTab() {
             <button className={`btn ${l.settled ? "btn-ghost" : "btn-gold"} admin-btn-sm`} onClick={() => settle(l.id, !l.settled)}>
               {l.settled ? "تسویه‌شده ✓" : "تسویه"}
             </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface ReportRow {
+  id: string; reason: string; status: string; created_at: string;
+  reporter_name: string | null; reported_name: string | null; table_id: string | null;
+}
+
+const REPORTS_PAGE = 100; // matches the server-side listReports cap
+
+function ReportsTab() {
+  const [reports, setReports] = useState<ReportRow[]>([]);
+  const [showAll, setShowAll] = useState(false);
+  const [err, setErr] = useState("");
+  // Ignore a superseded load: rapid «همه»/«باز» toggles can resolve out of order.
+  const loadSeq = useRef(0);
+  const load = useCallback(() => {
+    const seq = ++loadSeq.current;
+    return api<{ reports: ReportRow[] }>(`/api/admin/reports${showAll ? "" : "?status=open"}`)
+      .then((d) => { if (seq === loadSeq.current) { setReports(d.reports); setErr(""); } })
+      .catch((e) => { if (seq === loadSeq.current) setErr((e as Error).message); });
+  }, [showAll]);
+  useEffect(() => { load(); }, [load]);
+
+  async function resolve(id: string, status: "reviewed" | "dismissed") {
+    setErr("");
+    try {
+      await api(`/api/admin/reports/${id}/resolve`, { method: "POST", body: { status } });
+      load();
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }
+
+  return (
+    <div>
+      <div className="admin-reports-head">
+        <div style={{ fontWeight: 700 }}>گزارش‌های بازیکنان</div>
+        <button className="btn btn-ghost admin-btn-sm" onClick={() => setShowAll((s) => !s)}>
+          {showAll ? "فقط باز" : "همه"}
+        </button>
+      </div>
+      {err && <p className="create-error" role="alert">{err}</p>}
+      {reports.length === 0 && <div className="admin-reports-empty">گزارشی نیست.</div>}
+      {reports.length >= REPORTS_PAGE && (
+        <div className="admin-reports-empty">فقط ۱۰۰ مورد اخیر نمایش داده می‌شود.</div>
+      )}
+      <div style={{ display: "grid", gap: 6 }}>
+        {reports.map((r) => (
+          <div key={r.id} className="panel admin-ledger-row">
+            <div style={{ fontSize: 13 }}>
+              <b>{r.reported_name ?? "?"}</b> — {r.reason}
+              <div className="admin-ledger-meta">
+                گزارش‌دهنده: {r.reporter_name ?? "?"} · {new Date(r.created_at).toLocaleString("fa")}
+                {r.status !== "open" ? ` · ${r.status === "reviewed" ? "رسیدگی‌شده" : "رد‌شده"}` : ""}
+              </div>
+            </div>
+            {r.status === "open" && (
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn btn-gold admin-btn-sm" onClick={() => resolve(r.id, "reviewed")}>رسیدگی شد</button>
+                <button className="btn btn-ghost admin-btn-sm" onClick={() => resolve(r.id, "dismissed")}>رد</button>
+              </div>
+            )}
           </div>
         ))}
       </div>
