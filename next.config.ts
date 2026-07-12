@@ -16,7 +16,9 @@ const CSP = [
   "font-src 'self' data:",
   "style-src 'self' 'unsafe-inline'",
   "script-src 'self' 'unsafe-inline'",
-  "connect-src 'self' ws: wss:",
+  // 'self' covers the same-origin Socket.IO ws/wss endpoint in CSP3 browsers;
+  // do NOT broaden to `ws: wss:` (that would allow exfiltration to any host).
+  "connect-src 'self'",
 ].join("; ");
 
 // Applied to every route as defense-in-depth. HSTS is ignored over plain HTTP,

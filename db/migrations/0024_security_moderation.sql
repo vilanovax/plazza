@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS moderation_actions (
   id               BIGSERIAL PRIMARY KEY,
   moderator_id     UUID,                             -- who acted (NULL for automated); no FK on purpose
   target_user_id   UUID NOT NULL,                    -- who it was applied to; no FK so it survives deletion
-  report_id        BIGINT REFERENCES user_reports(id) ON DELETE SET NULL,
+  report_id        BIGINT,                           -- originating report; bare historical id, no FK (SET NULL would try to rewrite this append-only row and be rejected)
   action           TEXT NOT NULL,                    -- 'warn' | 'mute' | 'kick' | 'ban' | 'suspend' | 'unban' | 'appeal_granted' ...
   reason           TEXT,
   expires_at       TIMESTAMPTZ,                      -- for temporary suspensions/mutes (NULL = permanent/instant)
