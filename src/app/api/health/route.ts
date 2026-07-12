@@ -1,13 +1,14 @@
-import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { json } from "@/lib/api";
 
-/** Liveness/readiness probe for load balancers and Docker healthchecks. */
+/** Liveness/readiness probe for load balancers and Docker healthchecks.
+ *  Never cache: a stale "ok" (or worse, a cached 503) would mislead probes. */
 export async function GET() {
   try {
     await query("SELECT 1 AS ok");
-    return NextResponse.json({ ok: true, db: "ok" });
+    return json({ ok: true, db: "ok" });
   } catch (err) {
     console.error("Health check failed:", err);
-    return NextResponse.json({ ok: false, db: "error" }, { status: 503 });
+    return json({ ok: false, db: "error" }, 503);
   }
 }

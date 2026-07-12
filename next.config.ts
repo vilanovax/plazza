@@ -16,6 +16,12 @@ const nextConfig: NextConfig = {
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
       {
+        // The manifest is public but changes with releases: cache briefly and
+        // revalidate rather than pinning it for a year like hashed assets.
+        source: "/manifest.webmanifest",
+        headers: [{ key: "Cache-Control", value: "public, max-age=3600, must-revalidate" }],
+      },
+      {
         source: "/icons/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=86400" }],
       },
